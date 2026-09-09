@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SJA1105 · static configuration builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#eef1f3;--surface:#fff;--ink:#14212b;--soft:#4a5b67;--faint:#8b9aa4;
+  --rule:#ccd6dc;--out-bg:#16232c;--out-ink:#e6edf1;--out-cmt:#6ea8a6;
+  --out-hex:#f0d9a8;--ok:#0d7b7f;--bad:#8d3a2c;--bad-bg:#f6e3df;--warn:#8a6d1f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:'Barlow',system-ui,sans-serif;font-size:15px;line-height:1.5}
+.wrap{max-width:1340px;margin:0 auto;padding:0 20px 70px}
+header{padding:38px 0 18px}
+h1{font-size:29px;font-weight:600;letter-spacing:-.02em;margin:0 0 4px}
+.sub{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--faint);margin:0}
+
+.layout{display:grid;grid-template-columns:190px 1fr 480px;gap:16px;align-items:start}
+
+/* block list */
+.blocks{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:10px;position:sticky;top:14px}
+.blocks h3{font-size:11.5px;color:var(--faint);margin:2px 0 8px 6px;
+  font-family:'IBM Plex Mono',monospace;font-weight:500}
+.bitem{display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:2px;
+  cursor:pointer;font-size:13.5px}
+.bitem:hover{background:#f2f5f7}
+.bitem[aria-current=true]{background:var(--ink);color:#fff}
+.bitem[aria-current=true] .bid{color:#9fc4c6}
+.bitem .bid{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--faint)}
+.bitem .req{margin-left:auto;font-size:10px;color:var(--ok);font-weight:500}
+.bitem[aria-current=true] .req{color:#7fd4d0}
+.bitem input{accent-color:var(--ok);margin:0}
+
+/* panel */
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:18px 20px 20px}
+.panel h2{font-size:17px;font-weight:600;margin:0 0 3px}
+.panel .desc{font-size:13.5px;color:var(--soft);margin:0 0 18px;max-width:62ch}
+h4{font-size:12px;color:var(--faint);margin:20px 0 9px;font-weight:600;
+  font-family:'IBM Plex Mono',monospace}
+h4:first-of-type{margin-top:0}
+
+label{display:block;font-size:12px;color:var(--soft);margin:0 0 3px}
+input[type=text],select{font-family:'IBM Plex Mono',monospace;font-size:13px;
+  width:100%;padding:5px 7px;border:1px solid var(--rule);border-radius:2px;
+  background:#fbfcfd;color:var(--ink)}
+input:focus,select:focus,button:focus-visible,input[type=checkbox]:focus-visible
+  {outline:2px solid var(--ok);outline-offset:1px}
+input[type=checkbox]{accent-color:var(--ok);cursor:pointer;margin:0}
+.row{display:grid;gap:10px;margin-bottom:11px}
+.r2{grid-template-columns:1fr 1fr}.r3{grid-template-columns:repeat(3,1fr)}
+.r4{grid-template-columns:repeat(4,1fr)}
+.inline{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--soft);
+  margin:0;cursor:pointer}
+.flags{display:flex;gap:14px;flex-wrap:wrap;padding-top:4px}
+
+table.ports{width:100%;border-collapse:collapse;font-size:12.5px}
+table.ports th{text-align:left;font-family:'IBM Plex Mono',monospace;font-size:10.5px;
+  color:var(--faint);font-weight:500;padding:0 6px 6px 0;border-bottom:1px solid var(--rule)}
+table.ports td{padding:6px 6px 6px 0;border-bottom:1px solid #e9eef1;vertical-align:middle}
+table.ports td:first-child{font-family:'IBM Plex Mono',monospace;color:var(--faint);width:16px}
+table.ports select,table.ports input[type=text]{padding:3px 5px;font-size:12px}
+.pmask{display:flex;gap:3px}
+.pmask label{display:flex;flex-direction:column;align-items:center;gap:1px;
+  font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--faint);margin:0}
+
+button.act{font-family:'Barlow',sans-serif;font-size:13px;background:transparent;
+  color:var(--soft);border:1px solid var(--rule);border-radius:2px;padding:5px 12px;
+  cursor:pointer}
+button.act:hover{background:#f2f5f7;color:var(--ink)}
+button.act.solid{background:var(--ink);color:#fff;border-color:var(--ink)}
+button.x{border:0;background:transparent;color:var(--faint);cursor:pointer;
+  font-size:15px;padding:0 3px}
+button.x:hover{color:var(--bad)}
+
+/* output */
+.out{position:sticky;top:14px}
+.outbox{background:var(--out-bg);border-radius:3px;padding:14px 16px}
+.outbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.outbar span{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--out-cmt)}
+.outbox pre{font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.6;
+  color:var(--out-ink);margin:0;white-space:pre;overflow:auto;max-height:66vh}
+.outbox .c{color:var(--out-cmt)}.outbox .h{color:var(--out-hex)}
+button.copy{font-family:'Barlow',sans-serif;font-size:12px;background:#25353f;
+  color:#cfe0e4;border:1px solid #35474f;border-radius:2px;padding:4px 10px;cursor:pointer}
+button.copy:hover{background:#2e414c}
+.stats{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:12px 14px;margin-top:12px;font-size:12.5px}
+.stats div{display:flex;justify-content:space-between;padding:2px 0}
+.stats b{font-weight:500;color:var(--soft)}
+.stats .v{font-family:'IBM Plex Mono',monospace}
+.warn{background:#f7f1de;color:var(--warn);padding:8px 11px;border-radius:2px;
+  font-size:12.5px;margin-top:10px}
+.err{background:var(--bad-bg);color:var(--bad);padding:8px 11px;border-radius:2px;
+  font-size:12.5px;margin-top:10px}
+footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--rule);
+  font-size:12.5px;color:var(--faint);max-width:80ch}
+@media(max-width:1180px){.layout{grid-template-columns:1fr}.blocks,.out{position:static}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Static configuration builder</h1>
+  <p class="sub">SJA1105P/Q/R/S · generic loader format · UM11040 Rev. 2</p>
+</header>
+
+<div class="layout">
+
+  <nav class="blocks" id="blocklist">
+    <h3>blocks</h3>
+  </nav>
+
+  <div class="panel" id="panel"></div>
+
+  <div class="out">
+    <div class="outbox">
+      <div class="outbar">
+        <span id="stat"></span>
+        <button class="copy" id="copy">Copy</button>
+      </div>
+      <pre id="code"></pre>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="checks"></div>
+  </div>
+
+</div>
+
+<footer>
+  Bit positions transcribed from UM11040 Rev. 2 tables 16, 19, 20, 21, 22, 25, 28 and 29.
+  Blocks not covered here — the TTEthernet schedule tables, VL tables, AVB, CBS,
+  retagging, and the SGMII parameters your port 4 will need — must come from a
+  vendor tool. Always verify generated data against the manual.
+</footer>
+</div>
+
+<script>
+'use strict';
+
+/* ================= CRC-32, lower bytes of each word first ================= */
+const T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;
+  for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0}return t})();
+function crc32(ws){let c=0xFFFFFFFF;
+  for(const w of ws)for(let s=0;s<32;s+=8)c=(T[(c^((w>>>s)&0xFF))&0xFF]^(c>>>8))>>>0;
+  return (c^0xFFFFFFFF)>>>0}
+
+/* ================= bit packing ================= */
+function mkBits(n){return new Uint8Array(n)}
+function put(bits,v,msb,lsb){const w=msb-lsb+1;
+  let x=BigInt(v)&((1n<<BigInt(w))-1n);
+  for(let b=0;b<w;b++)bits[lsb+b]=Number((x>>BigInt(b))&1n)}
+function toWords(bits){const n=bits.length/32,o=[];
+  for(let w=0;w<n;w++){let v=0;for(let b=0;b<32;b++)if(bits[w*32+b])v|=(1<<b);o.push(v>>>0)}
+  return o}
+
+/* ================= helpers ================= */
+const hx=(s,max)=>{const h=String(s||'').replace(/[^0-9a-fA-F]/g,'');
+  if(!h)return 0n;const v=BigInt('0x'+h);return v>max?null:v};
+const dec=(s,max)=>{const v=parseInt(String(s).replace(/[^0-9]/g,''),10);
+  return Number.isNaN(v)||BigInt(v)>max?null:BigInt(v)};
+const mac=s=>{const h=String(s||'').replace(/[^0-9a-fA-F]/g,'');
+  return h.length===12?BigInt('0x'+h):null};
+const pv=a=>BigInt(a.reduce((x,d,p)=>x|(d?1<<p:0),0));
+const NP=5;
+
+/* ================= model ================= */
+function defPort(i){return{
+  xmii:i===4?2:1, role:i===4?1:0, speed:0,
+  vlanid:'000', vlanprio:0, ifg:0, maxage:255,
+  ingress:1, egress:1, learn:1,
+  drpuntag:0, drpdtag:0, drpsotag:0, drpsitag:0, retag:0,
+  ingmirr:0, egrmirr:0,
+  bc:[1,1,1,1,1].map((_,p)=>p===i?0:1),
+  reach:[1,1,1,1,1].map((_,p)=>p===i?0:1),
+  fl:[1,1,1,1,1].map((_,p)=>p===i?0:1)
+}}
+function defModel(){return{
+  ports:[0,1,2,3,4].map(defPort),
+  gen:{host:4,casc:7,mirr:7,swid:0,hostprio:0,
+    send0:0,send1:0,src0:0,src1:0,tpid:'8100',tpid2:'8100',mirrptacu:0,
+    fltres0:'000000000000',fltres1:'000000000000',
+    flt0:'000000000000',flt1:'000000000000'},
+  fwdp:{maxdynp:0,part:[400,400,400,400,400,400,400,400]},
+  pol:{smax:65535,rate:65535,maxlen:1518,partition:0},
+  l2:[{mac:'00:10:94:00:00:99',vlan:'000',iotag:0,dest:[1,0,0,0,0],enf:0,
+       index:0,mmac:'FFFFFFFFFFFF',mvlan:'FFF',miotag:1,
+       mirr:0,retag:0,takets:0,tsreg:0,mirrvlan:'000'}],
+  vlan:[{vid:'000',memb:[1,1,1,1,1],bc:[1,1,1,1,1],tag:[1,1,1,1,1],
+         ing:[0,0,0,0,0],egr:[0,0,0,0,0]}],
+  lkp:{maxage:1000,startdyn:0,shared:0,noenf:0,nomgmt:0,usestatic:0,
+    owrdyn:1,learnonce:0,
+    maxaddr:[1024,1024,1024,1024,1024],
+    drpnolearn:[0,0,0,0,0],drpbc:[0,0,0,0,0],drpmc:[0,0,0,0,0],drpuni:[0,0,0,0,0]},
+  avb:{srcmeta:'026037C0FFEE',destmeta:'026037DEADCB',casmaster:0,l2cbs:0},
+  sched:[{winstindex:0,winend:0,winst:0,dest:[0,0,0,0,0],setvalid:0,txen:0,
+          resmedia:0,vlindex:0,delta:0}],
+  schedep:[{subschindx:0,delta:0,address:0}],
+  vllkp:[{dest:[0,0,0,0,0],iscritical:0,mac:'00:00:00:00:00:00',
+          vlanid:'000',port:0,vlanprior:0}],
+  vlpol:[{ttrc:0,maxlen:1518,sharindx:0,bag:0,jitter:0}],
+  vlfwd:[{type:0,priority:0,partition:0,dest:[0,0,0,0,0]}],
+  schedp:{sub:[0,0,0,0,0,0,0,0]},
+  schedepp:{clksrc:0,actsubsch:0},
+  vlfwdp:{part:[0,0,0,0,0,0,0,0],debugen:0},
+  retag:[{egr:[0,0,0,0,0],ing:[0,0,0,0,0],vin:'000',veg:'000',
+          nolearn:0,usedest:0,dest:[0,0,0,0,0]}],
+  cbs:[{port:0,prio:0,creditlo:0,credithi:0,sendslope:0,idleslope:0}],
+  raw:{'80':new Array(44).fill('00000000'),
+       '81':['00000000'],
+       '82':new Array(21).fill('00000000'),
+       'C8':new Array(36).fill('00000000')},
+  on:{'00':false,'01':false,'02':false,'03':false,'04':false,'05':false,'06':true,
+      '07':false,'08':true,'09':true,'0A':false,'0B':false,'0C':false,'0D':false,
+      '0E':true,'10':false,'11':true,'12':false,'13':false,'4E':true,
+      '80':false,'81':false,'82':false,'C8':false},
+  clk:10, spiHdr:true
+}}
+let M=defModel();
+
+/* ================= block encoders ================= */
+const ENC={
+
+/* --- 05h L2 Address Lookup, 160 bits --- */
+'05':()=>{const out=[];for(const e of M.l2){
+  const b=mkBits(160);
+  put(b,BigInt(e.tsreg),159,159); put(b,hx(e.mirrvlan,0xFFFn)??0n,158,147);
+  put(b,BigInt(e.takets),146,146); put(b,BigInt(e.mirr),145,145);
+  put(b,BigInt(e.retag),144,144);  put(b,BigInt(e.miotag),143,143);
+  put(b,hx(e.mvlan,0xFFFn)??0n,142,131); put(b,mac(e.mmac)??0n,130,83);
+  put(b,BigInt(e.iotag),82,82);    put(b,hx(e.vlan,0xFFFn)??0n,81,70);
+  put(b,mac(e.mac)??0n,69,22);     put(b,pv(e.dest),21,17);
+  put(b,BigInt(e.enf),16,16);      put(b,dec(e.index,1023n)??0n,15,6);
+  out.push(...toWords(b));} return out},
+
+/* --- 06h L2 Policing, 64 bits x 45 --- */
+'06':()=>{const out=[],p=M.pol;
+  for(let i=0;i<45;i++){const b=mkBits(64);
+    put(b,BigInt(i),63,58);
+    put(b,dec(p.smax,65535n)??0n,57,42);
+    put(b,dec(p.rate,65535n)??0n,41,26);
+    put(b,dec(p.maxlen,2047n)??0n,25,15);
+    put(b,dec(p.partition,7n)??0n,14,12);
+    out.push(...toWords(b));} return out},
+
+/* --- 07h VLAN Lookup, 64 bits --- */
+'07':()=>{const out=[];for(const v of M.vlan){const b=mkBits(64);
+  put(b,pv(v.ing),63,59); put(b,pv(v.egr),58,54);
+  put(b,pv(v.memb),53,49); put(b,pv(v.bc),48,44);
+  put(b,pv(v.tag),43,39);  put(b,hx(v.vid,0xFFFn)??0n,38,27);
+  out.push(...toWords(b));} return out},
+
+/* --- 08h L2 Forwarding, 64 bits x 13 --- */
+'08':()=>{const out=[];
+  for(let i=0;i<NP;i++){const p=M.ports[i],b=mkBits(64);
+    put(b,pv(p.bc),63,59); put(b,pv(p.reach),58,54); put(b,pv(p.fl),53,49);
+    for(let q=0;q<8;q++) put(b,BigInt(q),25+3*q+2,25+3*q);
+    out.push(...toWords(b));}
+  for(let q=0;q<8;q++){const b=mkBits(64);
+    for(let p=0;p<NP;p++) put(b,BigInt(q),25+3*p+2,25+3*p);
+    out.push(...toWords(b));}
+  return out},
+
+/* --- 09h MAC Configuration, 256 bits x 5 --- */
+'09':()=>{const out=[];
+  for(let i=0;i<NP;i++){const p=M.ports[i],b=mkBits(256);
+    for(let q=0;q<8;q++){const base=104+19*q, bs=q*64, tp=bs+63;
+      put(b,1n,base,base); put(b,BigInt(bs),base+9,base+1); put(b,BigInt(tp),base+18,base+10);}
+    put(b,dec(p.ifg,31n)??0n,103,99);   put(b,BigInt(p.speed),98,97);
+    put(b,0n,96,81); put(b,0n,80,65);
+    put(b,dec(p.maxage,255n)??0n,64,57);
+    put(b,BigInt(p.vlanprio),56,54);    put(b,hx(p.vlanid,0xFFFn)??0n,53,42);
+    put(b,BigInt(p.ingmirr),41,41);     put(b,BigInt(p.egrmirr),40,40);
+    put(b,0n,39,39);
+    put(b,BigInt(p.drpdtag),38,38);     put(b,BigInt(p.drpsotag),37,37);
+    put(b,BigInt(p.drpsitag),36,36);    put(b,BigInt(p.drpuntag),35,35);
+    put(b,BigInt(p.retag),34,34);       put(b,BigInt(p.learn),33,33);
+    put(b,BigInt(p.egress),32,32);      put(b,BigInt(p.ingress),31,31);
+    out.push(...toWords(b));} return out},
+
+/* --- 00h Schedule, 64 bits --- */
+'00':()=>{const o=[];for(const e of M.sched){const b=mkBits(64);
+  put(b,dec(e.winstindex,1023n)??0n,63,54); put(b,BigInt(e.winend),53,53);
+  put(b,BigInt(e.winst),52,52);             put(b,pv(e.dest),51,47);
+  put(b,BigInt(e.setvalid),46,46);          put(b,BigInt(e.txen),45,45);
+  put(b,dec(e.resmedia,511n)??0n,44,36);    put(b,dec(e.vlindex,1023n)??0n,35,26);
+  put(b,dec(e.delta,262143n)??0n,25,8);
+  o.push(...toWords(b));} return o},
+
+/* --- 01h Schedule Entry Points, 32 bits --- */
+'01':()=>{const o=[];for(const e of M.schedep){const b=mkBits(32);
+  put(b,dec(e.subschindx,7n)??0n,31,29);  put(b,dec(e.delta,262143n)??0n,28,11);
+  put(b,dec(e.address,1023n)??0n,10,1);
+  o.push(...toWords(b));} return o},
+
+/* --- 02h VL Lookup (VLLUPFORMAT = 0), 96 bits --- */
+'02':()=>{const o=[];for(const e of M.vllkp){const b=mkBits(96);
+  put(b,pv(e.dest),95,91);                 put(b,BigInt(e.iscritical),90,90);
+  put(b,mac(e.mac)??0n,89,42);             put(b,hx(e.vlanid,0xFFFn)??0n,41,30);
+  put(b,dec(e.port,7n)??0n,29,27);         put(b,dec(e.vlanprior,7n)??0n,26,24);
+  o.push(...toWords(b));} return o},
+
+/* --- 03h VL Policing, 64 bits --- */
+'03':()=>{const o=[];for(const e of M.vlpol){const b=mkBits(64);
+  put(b,BigInt(e.ttrc),63,63);             put(b,dec(e.maxlen,2047n)??0n,62,52);
+  put(b,dec(e.sharindx,1023n)??0n,51,42);
+  if(!e.ttrc){ put(b,dec(e.bag,16383n)??0n,41,28);
+               put(b,dec(e.jitter,1023n)??0n,27,18); }
+  o.push(...toWords(b));} return o},
+
+/* --- 04h VL Forwarding, 32 bits --- */
+'04':()=>{const o=[];for(const e of M.vlfwd){const b=mkBits(32);
+  put(b,BigInt(e.type),31,31);             put(b,dec(e.priority,7n)??0n,30,28);
+  put(b,dec(e.partition,7n)??0n,27,25);    put(b,pv(e.dest),24,20);
+  o.push(...toWords(b));} return o},
+
+/* --- 0Ah Schedule Parameters, 96 bits --- */
+'0A':()=>{const b=mkBits(96);
+  for(let q=0;q<8;q++) put(b,dec(M.schedp.sub[q],1023n)??0n,16+10*q+9,16+10*q);
+  return toWords(b)},
+
+/* --- 0Bh Schedule Entry Points Parameters, 32 bits --- */
+'0B':()=>{const b=mkBits(32);
+  put(b,dec(M.schedepp.clksrc,3n)??0n,31,30);
+  put(b,dec(M.schedepp.actsubsch,7n)??0n,29,27);
+  return toWords(b)},
+
+/* --- 0Ch VL Forwarding Parameters, 96 bits --- */
+'0C':()=>{const b=mkBits(96);
+  for(let q=0;q<8;q++) put(b,dec(M.vlfwdp.part[q],1023n)??0n,16+10*q+9,16+10*q);
+  put(b,BigInt(M.vlfwdp.debugen),15,15);
+  return toWords(b)},
+
+/* --- 12h Retagging, 64 bits --- */
+'12':()=>{const o=[];for(const e of M.retag){const b=mkBits(64);
+  put(b,pv(e.egr),63,59);                  put(b,pv(e.ing),58,54);
+  put(b,hx(e.vin,0xFFFn)??0n,53,42);       put(b,hx(e.veg,0xFFFn)??0n,41,30);
+  put(b,BigInt(e.nolearn),29,29);          put(b,BigInt(e.usedest),28,28);
+  put(b,pv(e.dest),27,23);
+  o.push(...toWords(b));} return o},
+
+/* --- 13h Credit-Based Shaping, 160 bits --- */
+'13':()=>{const o=[];for(const e of M.cbs){const b=mkBits(160);
+  put(b,dec(e.port,7n)??0n,159,157);       put(b,dec(e.prio,7n)??0n,156,154);
+  put(b,dec(e.creditlo,4294967295n)??0n,153,122);
+  put(b,dec(e.credithi,4294967295n)??0n,121,90);
+  put(b,dec(e.sendslope,4294967295n)??0n,89,58);
+  put(b,dec(e.idleslope,4294967295n)??0n,57,26);
+  o.push(...toWords(b));} return o},
+
+/* --- register-mirror blocks: raw 32-bit words --- */
+'80':()=>M.raw['80'].map(w=>Number(hx(w,0xFFFFFFFFn)??0n)>>>0),
+'81':()=>M.raw['81'].map(w=>Number(hx(w,0xFFFFFFFFn)??0n)>>>0),
+'82':()=>M.raw['82'].map(w=>Number(hx(w,0xFFFFFFFFn)??0n)>>>0),
+'C8':()=>M.raw['C8'].map(w=>Number(hx(w,0xFFFFFFFFn)??0n)>>>0),
+
+/* --- 0Dh L2 Lookup Parameters, 128 bits --- */
+'0D':()=>{const b=mkBits(128),k=M.lkp;
+  put(b,pv(k.drpbc),127,123);  put(b,pv(k.drpmc),122,118);
+  put(b,pv(k.drpuni),117,113);
+  for(let p=0;p<NP;p++) put(b,dec(k.maxaddr[p],2047n)??0n,58+11*p+10,58+11*p);
+  put(b,dec(k.maxage,32767n)??0n,57,43);
+  put(b,dec(k.startdyn,1023n)??0n,42,33);
+  put(b,pv(k.drpnolearn),32,28);
+  put(b,BigInt(k.shared),27,27);     put(b,BigInt(k.noenf),26,26);
+  put(b,BigInt(k.nomgmt),25,25);     put(b,BigInt(k.usestatic),24,24);
+  put(b,BigInt(k.owrdyn),23,23);     put(b,BigInt(k.learnonce),22,22);
+  return toWords(b)},
+
+/* --- 10h AVB Parameters, 128 bits --- */
+'10':()=>{const b=mkBits(128),a=M.avb;
+  put(b,BigInt(a.l2cbs),127,127);    put(b,BigInt(a.casmaster),126,126);
+  put(b,mac(a.destmeta)??0n,125,78); put(b,mac(a.srcmeta)??0n,77,30);
+  return toWords(b)},
+
+/* --- 0Eh L2 Forwarding Parameters, 96 bits --- */
+'0E':()=>{const b=mkBits(96),f=M.fwdp;
+  put(b,dec(f.maxdynp,7n)??0n,95,93);
+  for(let q=0;q<8;q++) put(b,dec(f.part[q],1023n)??0n,13+10*q+9,13+10*q);
+  return toWords(b)},
+
+/* --- 11h General Parameters, 352 bits --- */
+'11':()=>{const b=mkBits(352),g=M.gen;
+  put(b,0n,351,351);                     put(b,BigInt(g.mirrptacu),350,350);
+  put(b,BigInt(g.swid),349,347);         put(b,BigInt(g.hostprio),346,344);
+  put(b,mac(g.fltres1)??0n,343,296);     put(b,mac(g.fltres0)??0n,295,248);
+  put(b,mac(g.flt1)??0n,247,200);        put(b,mac(g.flt0)??0n,199,152);
+  put(b,BigInt(g.src1),151,151);         put(b,BigInt(g.src0),150,150);
+  put(b,BigInt(g.send1),149,149);        put(b,BigInt(g.send0),148,148);
+  put(b,BigInt(g.casc),147,145);         put(b,BigInt(g.host),144,142);
+  put(b,BigInt(g.mirr),141,139);
+  put(b,0n,138,107);                     put(b,0xFFFFFFFFn,106,75);
+  put(b,hx(g.tpid,0xFFFFn)??0n,74,59);   put(b,0n,58,58);
+  put(b,hx(g.tpid2,0xFFFFn)??0n,57,42);
+  return toWords(b)},
+
+/* --- 4Eh xMII Mode Parameters, 32 bits --- */
+'4E':()=>{const b=mkBits(32);
+  for(let i=0;i<NP;i++){const pm=19+3*i;
+    put(b,BigInt(M.ports[i].role),pm,pm);
+    put(b,BigInt(M.ports[i].xmii),pm-1,pm-2);}
+  return toWords(b)}
+};
+
+const META={
+ '00':{n:'Schedule',req:false,qs:true,ent:()=>M.sched.length,w:2},
+ '01':{n:'Schedule Entry Points',req:false,qs:true,ent:()=>M.schedep.length,w:1},
+ '02':{n:'VL Lookup',req:false,qs:true,ent:()=>M.vllkp.length,w:3},
+ '03':{n:'VL Policing',req:false,qs:true,ent:()=>M.vlpol.length,w:2},
+ '04':{n:'VL Forwarding',req:false,qs:true,ent:()=>M.vlfwd.length,w:1},
+ '05':{n:'L2 Address Lookup',req:false,ent:()=>M.l2.length,w:5},
+ '06':{n:'L2 Policing',req:true,ent:()=>45,w:2},
+ '07':{n:'VLAN Lookup',req:false,ent:()=>M.vlan.length,w:2},
+ '08':{n:'L2 Forwarding',req:true,ent:()=>13,w:2},
+ '09':{n:'MAC Configuration',req:true,ent:()=>5,w:8},
+ '0A':{n:'Schedule Params',req:false,qs:true,ent:()=>1,w:3},
+ '0B':{n:'Sched Entry Pt Params',req:false,qs:true,ent:()=>1,w:1},
+ '0C':{n:'VL Forwarding Params',req:false,qs:true,ent:()=>1,w:3},
+ '0D':{n:'L2 Lookup Params',req:false,ent:()=>1,w:4},
+ '0E':{n:'L2 Forwarding Params',req:true,ent:()=>1,w:3},
+ '10':{n:'AVB Parameters',req:false,ent:()=>1,w:4},
+ '11':{n:'General Parameters',req:true,ent:()=>1,w:11},
+ '12':{n:'Retagging',req:false,ent:()=>M.retag.length,w:2},
+ '13':{n:'Credit-Based Shaping',req:false,ent:()=>M.cbs.length,w:5},
+ '4E':{n:'xMII Mode Params',req:true,ent:()=>1,w:1},
+ '80':{n:'CGU registers',req:false,raw:44,ent:()=>1,w:44},
+ '81':{n:'RGU registers',req:false,raw:1,ent:()=>1,w:1},
+ '82':{n:'ACU registers',req:false,raw:21,ent:()=>1,w:21},
+ 'C8':{n:'SGMII registers',req:false,raw:36,rs:true,ent:()=>1,w:36}
+};
+const RAWNAMES={
+ '80':['RFRQ','PLL_0_C','PLL_1_C','IDIV_0_C','IDIV_1_C','IDIV_2_C','IDIV_3_C',
+   'IDIV_4_C','BASE_SAFE_CLK_C','BASE_SWITCH_CLK_C','BASE_PERPH_CLK_C',
+   'MII0_MII_TX_CLK_C','MII0_MII_RX_CLK_C','MII0_RMII_REF_CLK_C','MII0_RGMII_TX_CLK_C',
+   'MII0_EXT_TX_CLK_C','MII0_EXT_RX_CLK_C','MII1_MII_TX_CLK_C','MII1_MII_RX_CLK_C',
+   'MII1_RMII_REF_CLK_C','MII1_RGMII_TX_CLK_C','MII1_EXT_TX_CLK_C','MII1_EXT_RX_CLK_C',
+   'MII2_MII_TX_CLK_C','MII2_MII_RX_CLK_C','MII2_RMII_REF_CLK_C','MII2_RGMII_TX_CLK_C',
+   'MII2_EXT_TX_CLK_C','MII2_EXT_RX_CLK_C','MII3_MII_TX_CLK_C','MII3_MII_RX_CLK_C',
+   'MII3_RMII_REF_CLK_C','MII3_RGMII_TX_CLK_C','MII3_EXT_TX_CLK_C','MII3_EXT_RX_CLK_C',
+   'MII4_MII_TX_CLK_C','MII4_MII_RX_CLK_C','MII4_RMII_REF_CLK_C','MII4_RGMII_TX_CLK_C',
+   'MII4_EXT_TX_CLK','MII4_EXT_RX_CLK','reserved','reserved','reserved'],
+ '81':['UNIT_DISABLE'],
+ '82':['CFG_PAD_MII0_TX','CFG_PAD_MII0_RX','CFG_PAD_MII1_TX','CFG_PAD_MII1_RX',
+   'CFG_PAD_MII2_TX','CFG_PAD_MII2_RX','CFG_PAD_MII3_TX','CFG_PAD_MII3_RX',
+   'CFG_PAD_MII4_TX','CFG_PAD_MII4_RX','CFG_PAD_MII0_ID','CFG_PAD_MII1_ID',
+   'CFG_PAD_MII2_ID','CFG_PAD_MII3_ID','CFG_PAD_MII4_ID','CFG_PAD_MISC',
+   'CFG_PAD_SPI','CFG_PAD_JTAG','TS_CONFIG','UNIT_DISABLE','reserved'],
+ 'C8':(()=>{const a=new Array(36).fill('reserved');
+   /* word index = (1151-msb)/32 counting from the top of the block */
+   a[0]='DIGITAL_ERROR_CNT'; a[1]='DIGITAL_CONTROL_2';
+   a[24]='DEBUG_CONTROL';    a[25]='TEST_CONTROL';
+   a[27]='AUTONEG_CONTROL';  a[28]='DIGITAL_CONTROL_1';
+   a[29]='AUTONEG_ADV';      a[30]='BASIC_CONTROL';
+   return a;})()
+};
+const ORDER=['00','01','02','03','04','05','06','07','08','09','0A','0B','0C','0D','0E','10','11','12','13','4E','80','81','82','C8'];
+let cur='4E';
+
+/* ================= UI: block list ================= */
+function renderList(){
+  document.getElementById('blocklist').innerHTML='<h3>blocks</h3>'+
+   `<div class="bitem" style="border-bottom:1px solid var(--rule);margin-bottom:6px;
+     padding-bottom:9px"><input type="checkbox" id="spihdr" ${M.spiHdr?'checked':''}>
+     <span style="font-size:12.5px">SPI write header</span></div>`+
+   ORDER.map(id=>`<div class="bitem" data-b="${id}" aria-current="${cur===id}">
+     <input type="checkbox" data-on="${id}" ${M.on[id]?'checked':''}
+       ${META[id].req?'disabled':''} aria-label="Include block ${id}">
+     <span class="bid">${id}h</span><span>${META[id].n}</span>
+     ${META[id].req?'<span class="req">req</span>':
+       (META[id].qs?'<span class="req" style="color:var(--faint)">Q/S</span>':
+       (META[id].rs?'<span class="req" style="color:var(--faint)">R/S</span>':''))}</div>`).join('');
+}
+document.getElementById('blocklist').addEventListener('click',e=>{
+  if(e.target.id==='spihdr'){M.spiHdr=e.target.checked;build();return;}
+  const cb=e.target.dataset.on;
+  if(cb!==undefined){M.on[cb]=e.target.checked;build();return;}
+  const it=e.target.closest('.bitem'); if(!it)return;
+  cur=it.dataset.b; renderList(); renderPanel();
+});
+
+/* ================= UI: panels ================= */
+const XMII=['MII','RMII','RGMII','SGMII / off'];
+const SPD=['dynamic (host sets)','1000 Mbit/s','100 Mbit/s','10 Mbit/s'];
+const pmaskHtml=(k,i,arr)=>`<div class="pmask">${arr.map((d,p)=>
+  `<label>${p}<input type="checkbox" data-p="${i}" data-k="${k}" data-b="${p}"
+   ${d?'checked':''} aria-label="${k} port ${p}"></label>`).join('')}</div>`;
+
+function renderPanel(){
+  const el=document.getElementById('panel'); let h='';
+  const m=META[cur];
+  h+=`<h2>${m.n} <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;
+      color:var(--faint);font-weight:400">block ${cur}h</span></h2>`;
+
+  if(cur==='4E'){
+    h+=`<p class="desc">Interface type and role per port. Role is decided by what sits at
+      the far end: a real PHY means the switch is the MAC, another MAC means the switch
+      must act as the PHY and drive the clocks.</p>
+      <table class="ports"><thead><tr><th></th><th>xMII mode</th><th>role</th></tr></thead><tbody>`;
+    for(let i=0;i<NP;i++){const p=M.ports[i];
+      h+=`<tr><td>${i}</td>
+        <td><select data-p="${i}" data-k="xmii">${XMII.map((x,v)=>
+          `<option value="${v}" ${p.xmii==v?'selected':''}>${x}</option>`).join('')}</select></td>
+        <td><select data-p="${i}" data-k="role">
+          <option value="0" ${p.role==0?'selected':''}>MAC — far end is a PHY</option>
+          <option value="1" ${p.role==1?'selected':''}>PHY — far end is a MAC</option>
+        </select></td></tr>`;}
+    h+='</tbody></table>';
+  }
+
+  if(cur==='09'){
+    h+=`<p class="desc">Per-port MAC settings. Leave speed on <em>dynamic</em> if the host
+      will push the negotiated PHY speed at runtime — the switch has no MDIO and cannot
+      learn it by itself. Output queues are split evenly across the eight priorities.</p>
+      <table class="ports"><thead><tr><th></th><th>speed</th><th>VLAN</th><th>pri</th>
+      <th>in</th><th>eg</th><th>learn</th><th>drop untag</th><th>drop dtag</th></tr></thead><tbody>`;
+    for(let i=0;i<NP;i++){const p=M.ports[i];
+      const cb=(k)=>`<input type="checkbox" data-p="${i}" data-k="${k}" ${p[k]?'checked':''}>`;
+      h+=`<tr><td>${i}</td>
+        <td><select data-p="${i}" data-k="speed">${SPD.map((s,v)=>
+          `<option value="${v}" ${p.speed==v?'selected':''}>${s}</option>`).join('')}</select></td>
+        <td><input type="text" data-p="${i}" data-k="vlanid" value="${p.vlanid}" style="width:46px"></td>
+        <td><input type="text" data-p="${i}" data-k="vlanprio" value="${p.vlanprio}" style="width:32px"></td>
+        <td>${cb('ingress')}</td><td>${cb('egress')}</td><td>${cb('learn')}</td>
+        <td>${cb('drpuntag')}</td><td>${cb('drpdtag')}</td></tr>`;}
+    h+='</tbody></table>';
+  }
+
+  if(cur==='08'){
+    h+=`<p class="desc">Forwarding domains, one row per ingress port. A port should never
+      appear in its own vectors or a frame can be echoed back out of the interface it
+      arrived on. Priority mapping is set to identity.</p>
+      <table class="ports"><thead><tr><th></th><th>REACH_PORT</th><th>BC_DOMAIN</th>
+      <th>FL_DOMAIN</th></tr></thead><tbody>`;
+    for(let i=0;i<NP;i++){const p=M.ports[i];
+      h+=`<tr><td>${i}</td><td>${pmaskHtml('reach',i,p.reach)}</td>
+        <td>${pmaskHtml('bc',i,p.bc)}</td><td>${pmaskHtml('fl',i,p.fl)}</td></tr>`;}
+    h+='</tbody></table>';
+  }
+
+  if(cur==='06'){
+    const p=M.pol;
+    h+=`<p class="desc">Applied to all 45 entries — five ports × eight priorities, plus
+      one broadcast entry per port. RATE is in multiples of 15.625 kbps; 65535 is
+      effectively unlimited.</p>
+      <div class="row r4">
+      <div><label>SMAX — burst, bytes</label><input type="text" data-pol="smax" value="${p.smax}"></div>
+      <div><label>RATE</label><input type="text" data-pol="rate" value="${p.rate}"></div>
+      <div><label>MAXLEN — bytes</label><input type="text" data-pol="maxlen" value="${p.maxlen}"></div>
+      <div><label>PARTITION</label><input type="text" data-pol="partition" value="${p.partition}"></div>
+      </div>
+      <div class="warn" style="margin-top:4px">MAXLEN counts headers and FCS. 1518 for
+      untagged, 1522 with a VLAN tag, more for jumbo.</div>`;
+  }
+
+  if(cur==='0E'){
+    const f=M.fwdp;
+    h+=`<p class="desc">Frame memory partitioning. The device has 4096 blocks of 128 bytes;
+      the sum across partitions must not exceed that. Oversubscribing shows up as
+      unexplained drops under load, not as a configuration error.</p>
+      <div class="row r2"><div><label>MAX_DYNP</label>
+      <input type="text" data-fwdp="maxdynp" value="${f.maxdynp}"></div><div></div></div>
+      <h4>PART_SPC — blocks per priority</h4><div class="row r4">`;
+    for(let q=0;q<8;q++) h+=`<div><label>priority ${q}</label>
+      <input type="text" data-part="${q}" value="${f.part[q]}"></div>`;
+    h+=`</div><div id="partsum" class="warn" style="margin-top:2px"></div>`;
+  }
+
+  const M_ = M;
+  const chk=(ds,i,k,v)=>`<input type="checkbox" data-${ds}="${i}" data-k="${k}" ${v?'checked':''}>`;
+  const txt=(ds,i,k,v,w)=>`<input type="text" data-${ds}="${i}" data-k="${k}" value="${v}"${w?` style="width:${w}px"`:''}>`;
+  const pmk=(ds,i,k,arr)=>`<div class="pmask">${arr.map((d,q)=>
+    `<label>${q}<input type="checkbox" data-${ds}="${i}" data-k="${k}" data-b="${q}" ${d?'checked':''}></label>`).join('')}</div>`;
+
+  if(META[cur].raw){
+    const n=META[cur].raw, names=RAWNAMES[cur];
+    h+=`<p class="desc">This block mirrors ${n} device register${n>1?'s':''} straight
+      into the configuration stream. The manual defines each one under its own register
+      description, not as a bit field here, so enter raw 32-bit values.
+      ${cur==='C8'?'<strong>Port 4 SGMII needs this block.</strong> Values must come from the SGMII register descriptions or a vendor tool — leaving them zero will not bring the SerDes up.':''}</p>
+      <table class="ports"><thead><tr><th>#</th><th>register</th><th>value</th>
+      <th>#</th><th>register</th><th>value</th></tr></thead><tbody>`;
+    for(let i=0;i<Math.ceil(n/2);i++){
+      const j=i+Math.ceil(n/2);
+      const cell=(k)=> k<n
+        ? `<td>${k}</td><td style="font-family:'IBM Plex Mono',monospace;font-size:11px;
+             color:${names[k]==='reserved'?'var(--faint)':'var(--soft)'}">${names[k]||''}</td>
+           <td><input type="text" data-raw="${cur}" data-w="${k}" value="${M.raw[cur][k]}" style="width:78px"></td>`
+        : '<td></td><td></td><td></td>';
+      h+=`<tr>${cell(i)}${cell(j)}</tr>`;}
+    h+='</tbody></table>';
+  }
+
+  if(cur==='00'){
+    h+=`<p class="desc">Time-aware gating events. Each entry fires DELTA units after the
+      previous one and opens or closes transmission on the ports in DESTPORTS. Requires
+      blocks 01h, 0Ah and 0Bh alongside it.</p>`;
+    M.sched.forEach((e,i)=>{h+=`<h4>event ${i} <button class="x" data-del="sched:${i}">×</button></h4>
+      <div class="row r4">
+      <div><label>DELTA</label>${txt('sched',i,'delta',e.delta)}</div>
+      <div><label>VLINDEX</label>${txt('sched',i,'vlindex',e.vlindex)}</div>
+      <div><label>WINSTINDEX</label>${txt('sched',i,'winstindex',e.winstindex)}</div>
+      <div><label>RESMEDIA</label>${txt('sched',i,'resmedia',e.resmedia)}</div></div>
+      <div class="row r2"><div><label>DESTPORTS</label>${pmk('sched',i,'dest',e.dest)}</div>
+      <div><label>flags</label><div class="flags">
+      <label class="inline">${chk('sched',i,'txen',e.txen)}TXEN</label>
+      <label class="inline">${chk('sched',i,'winst',e.winst)}WINST</label>
+      <label class="inline">${chk('sched',i,'winend',e.winend)}WINEND</label>
+      <label class="inline">${chk('sched',i,'setvalid',e.setvalid)}SETVALID</label>
+      </div></div></div>`;});
+    h+=`<button class="act solid" data-add="sched">Add event</button>`;
+  }
+
+  if(cur==='01'){
+    h+=`<p class="desc">Where each subschedule starts. DELTA is in multiples of 200 ns;
+      ADDRESS indexes into the Schedule table.</p>`;
+    M.schedep.forEach((e,i)=>{h+=`<h4>entry point ${i} <button class="x" data-del="schedep:${i}">×</button></h4>
+      <div class="row r3">
+      <div><label>SUBSCHINDX</label>${txt('schedep',i,'subschindx',e.subschindx)}</div>
+      <div><label>DELTA — ×200 ns</label>${txt('schedep',i,'delta',e.delta)}</div>
+      <div><label>ADDRESS</label>${txt('schedep',i,'address',e.address)}</div></div>`;});
+    h+=`<button class="act solid" data-add="schedep">Add entry point</button>`;
+  }
+
+  if(cur==='02'){
+    h+=`<p class="desc">Virtual Link identification. A frame matching destination MAC,
+      VLAN, priority and ingress port is bound to this VL. Assumes VLLUPFORMAT = 0.</p>`;
+    M.vllkp.forEach((e,i)=>{h+=`<h4>VL ${i} <button class="x" data-del="vllkp:${i}">×</button></h4>
+      <div class="row r4">
+      <div><label>MACADDR</label>${txt('vllkp',i,'mac',e.mac)}</div>
+      <div><label>VLANID</label>${txt('vllkp',i,'vlanid',e.vlanid,52)}</div>
+      <div><label>PORT</label>${txt('vllkp',i,'port',e.port,40)}</div>
+      <div><label>VLANPRIOR</label>${txt('vllkp',i,'vlanprior',e.vlanprior,40)}</div></div>
+      <div class="row r2"><div><label>DESTPORTS</label>${pmk('vllkp',i,'dest',e.dest)}</div>
+      <div><label>flags</label><div class="flags">
+      <label class="inline">${chk('vllkp',i,'iscritical',e.iscritical)}ISCRITICAL</label>
+      </div></div></div>`;});
+    h+=`<button class="act solid" data-add="vllkp">Add VL</button>`;
+  }
+
+  if(cur==='03'){
+    h+=`<p class="desc">Per-VL policing. TTRC selects the entry format: time-triggered
+      uses MAXLEN and SHARINDX only, rate-constrained adds BAG and JITTER.</p>`;
+    M.vlpol.forEach((e,i)=>{h+=`<h4>VL ${i} <button class="x" data-del="vlpol:${i}">×</button></h4>
+      <div class="row r4">
+      <div><label>MAXLEN</label>${txt('vlpol',i,'maxlen',e.maxlen)}</div>
+      <div><label>SHARINDX</label>${txt('vlpol',i,'sharindx',e.sharindx)}</div>
+      <div><label>BAG — ×100 µs</label>${txt('vlpol',i,'bag',e.bag)}</div>
+      <div><label>JITTER</label>${txt('vlpol',i,'jitter',e.jitter)}</div></div>
+      <div class="row"><div><label>type</label><div class="flags">
+      <label class="inline">${chk('vlpol',i,'ttrc',e.ttrc)}TTRC — time-triggered (BAG and JITTER ignored)</label>
+      </div></div></div>`;});
+    h+=`<button class="act solid" data-add="vlpol">Add VL</button>`;
+  }
+
+  if(cur==='04'){
+    h+=`<p class="desc">Where each VL egresses, and which memory partition it draws from.</p>`;
+    M.vlfwd.forEach((e,i)=>{h+=`<h4>VL ${i} <button class="x" data-del="vlfwd:${i}">×</button></h4>
+      <div class="row r4">
+      <div><label>PRIORITY</label>${txt('vlfwd',i,'priority',e.priority)}</div>
+      <div><label>PARTITION</label>${txt('vlfwd',i,'partition',e.partition)}</div>
+      <div><label>DESTPORTS</label>${pmk('vlfwd',i,'dest',e.dest)}</div>
+      <div><label>flags</label><div class="flags">
+      <label class="inline">${chk('vlfwd',i,'type',e.type)}TYPE — time-triggered</label>
+      </div></div></div>`;});
+    h+=`<button class="act solid" data-add="vlfwd">Add VL</button>`;
+  }
+
+  if(cur==='0A'){
+    h+=`<p class="desc">The last Schedule table index belonging to each subschedule.</p>
+      <div class="row r4">`;
+    for(let q=0;q<8;q++) h+=`<div><label>SUBSCHEIND(${q})</label>
+      <input type="text" data-schedp="${q}" value="${M.schedp.sub[q]}"></div>`;
+    h+='</div>';
+  }
+
+  if(cur==='0B'){
+    h+=`<p class="desc">Clock source and how many subschedules are active. ACTSUBSCH is
+      the count minus one; subschedule zero must always exist.</p>
+      <div class="row r2">
+      <div><label>CLKSRC</label><select data-schedepp="clksrc">
+        ${['0 — standalone','1 — PTP clock','2 — reserved','3 — reserved'].map((x,v)=>
+          `<option value="${v}" ${M.schedepp.clksrc==v?'selected':''}>${x}</option>`).join('')}
+      </select></div>
+      <div><label>ACTSUBSCH</label><input type="text" data-schedepp="actsubsch"
+        value="${M.schedepp.actsubsch}"></div></div>`;
+  }
+
+  if(cur==='0C'){
+    h+=`<p class="desc">Frame memory reserved for critical traffic, per VL partition.
+      DEBUGEN enables mirroring and retagging for critical traffic.</p>
+      <div class="row r4">`;
+    for(let q=0;q<8;q++) h+=`<div><label>PARTSPC(${q})</label>
+      <input type="text" data-vlfwdp="${q}" value="${M.vlfwdp.part[q]}"></div>`;
+    h+=`</div><div class="row"><div><label>flags</label><div class="flags">
+      <label class="inline"><input type="checkbox" data-vlfwdpf="debugen"
+      ${M.vlfwdp.debugen?'checked':''}>DEBUGEN</label></div></div></div>`;
+  }
+
+  if(cur==='12'){
+    h+=`<p class="desc">VLAN translation. A frame arriving on an ING_PORT with VLAN_ING
+      is copied and retagged to VLAN_EGR on the EGR_PORT set.</p>`;
+    M.retag.forEach((e,i)=>{h+=`<h4>rule ${i} <button class="x" data-del="retag:${i}">×</button></h4>
+      <div class="row r2">
+      <div><label>VLAN_ING</label>${txt('retag',i,'vin',e.vin,60)}</div>
+      <div><label>VLAN_EGR</label>${txt('retag',i,'veg',e.veg,60)}</div></div>
+      <table class="ports"><thead><tr><th>ING_PORT</th><th>EGR_PORT</th><th>DESTPORTS</th>
+      <th>flags</th></tr></thead><tbody><tr>
+      <td>${pmk('retag',i,'ing',e.ing)}</td><td>${pmk('retag',i,'egr',e.egr)}</td>
+      <td>${pmk('retag',i,'dest',e.dest)}</td>
+      <td><div class="flags">
+        <label class="inline">${chk('retag',i,'usedest',e.usedest)}USE_DEST_PORTS</label>
+        <label class="inline">${chk('retag',i,'nolearn',e.nolearn)}DO_NOT_LEARN</label>
+      </div></td></tr></tbody></table>`;});
+    h+=`<button class="act solid" data-add="retag">Add rule</button>`;
+  }
+
+  if(cur==='13'){
+    h+=`<p class="desc">Up to 16 shaper blocks, each bound to one port and priority
+      queue. Slopes are in bytes per second.</p>`;
+    M.cbs.forEach((e,i)=>{h+=`<h4>shaper ${i} <button class="x" data-del="cbs:${i}">×</button></h4>
+      <div class="row r3">
+      <div><label>CBS_PORT</label>${txt('cbs',i,'port',e.port)}</div>
+      <div><label>CBS_PRIO</label>${txt('cbs',i,'prio',e.prio)}</div>
+      <div></div></div>
+      <div class="row r4">
+      <div><label>IDLE_SLOPE</label>${txt('cbs',i,'idleslope',e.idleslope)}</div>
+      <div><label>SEND_SLOPE</label>${txt('cbs',i,'sendslope',e.sendslope)}</div>
+      <div><label>CREDIT_HI</label>${txt('cbs',i,'credithi',e.credithi)}</div>
+      <div><label>CREDIT_LO</label>${txt('cbs',i,'creditlo',e.creditlo)}</div></div>`;});
+    h+=`<button class="act solid" data-add="cbs">Add shaper</button>`;
+  }
+
+  if(cur==='0D'){
+    const k=M.lkp;
+    h+=`<p class="desc">Address learning limits — the switch's defence against CAM
+      exhaustion. MAXADDRP caps learned addresses per port; set it to zero and nothing
+      is learned there. LEARN_ONCE stops an address being re-learned on a different
+      port until it ages out, which blocks MAC spoofing from elsewhere.</p>
+      <div class="row r3">
+      <div><label>MAXAGE — units of 10 ms</label>
+        <input type="text" data-lkp="maxage" value="${k.maxage}"></div>
+      <div><label>START_DYNSPC</label>
+        <input type="text" data-lkp="startdyn" value="${k.startdyn}"></div>
+      <div><label>flags</label><div class="flags">
+        <label class="inline"><input type="checkbox" data-lkp="shared" ${k.shared?'checked':''}>SHARED_LEARN</label>
+        <label class="inline"><input type="checkbox" data-lkp="learnonce" ${k.learnonce?'checked':''}>LEARN_ONCE</label>
+      </div></div></div>
+      <div class="row r3">
+      <div><label>more flags</label><div class="flags">
+        <label class="inline"><input type="checkbox" data-lkp="usestatic" ${k.usestatic?'checked':''}>USE_STATIC</label>
+        <label class="inline"><input type="checkbox" data-lkp="owrdyn" ${k.owrdyn?'checked':''}>OWR_DYN</label>
+        <label class="inline"><input type="checkbox" data-lkp="noenf" ${k.noenf?'checked':''}>NO_ENF_HOSTPRT</label>
+        <label class="inline"><input type="checkbox" data-lkp="nomgmt" ${k.nomgmt?'checked':''}>NO_MGMT_LEARN</label>
+      </div></div></div>
+      <h4>per port</h4>
+      <table class="ports"><thead><tr><th></th><th>MAXADDRP</th><th>DRPNOLEARN</th>
+      <th>DRPBC</th><th>DRPMC</th><th>DRPUNI</th></tr></thead><tbody>`;
+    for(let i=0;i<NP;i++){
+      const c=(f)=>`<input type="checkbox" data-lkpv="${f}" data-b="${i}" ${k[f][i]?'checked':''}>`;
+      h+=`<tr><td>${i}</td>
+        <td><input type="text" data-lkpa="${i}" value="${k.maxaddr[i]}" style="width:56px"></td>
+        <td>${c('drpnolearn')}</td><td>${c('drpbc')}</td><td>${c('drpmc')}</td>
+        <td>${c('drpuni')}</td></tr>`;}
+    h+=`</tbody></table>
+      <div class="warn" style="margin-top:10px">MAXADDRP = 0 plus DRPNOLEARN gives strict
+      whitelisting: nothing is learned and unknown sources are dropped.</div>`;
+  }
+
+  if(cur==='10'){
+    const a=M.avb;
+    h+=`<p class="desc">Meta frame addressing and cascade role. Meta frames carry the
+      ingress timestamp that follows a trapped PTP frame, so these matter once you
+      enable SEND_META in the General Parameters.</p>
+      <div class="row r2">
+      <div><label>SRCMETA</label><input type="text" data-avb="srcmeta" value="${a.srcmeta}"></div>
+      <div><label>DESTMETA</label><input type="text" data-avb="destmeta" value="${a.destmeta}"></div></div>
+      <div class="row r2"><div><label>flags</label><div class="flags">
+        <label class="inline"><input type="checkbox" data-avb="casmaster" ${a.casmaster?'checked':''}>CAS_MASTER</label>
+        <label class="inline"><input type="checkbox" data-avb="l2cbs" ${a.l2cbs?'checked':''}>L2CBS</label>
+      </div></div><div></div></div>`;
+  }
+
+  if(cur==='11'){
+    const g=M.gen;
+    const sel=(k,lbl)=>`<div><label>${lbl}</label><select data-gen="${k}">
+      ${[0,1,2,3,4,5,6,7].map(v=>`<option value="${v}" ${g[k]==v?'selected':''}>
+        ${v<5?'port '+v:(v===7?'7 — none':v)}</option>`).join('')}</select></div>`;
+    h+=`<p class="desc">Global switch settings. HOST_PORT is the port facing the
+      management CPU. Set MIRR_PORT to 7 in production — mirroring overrules every VLAN
+      and reachability restriction you configure elsewhere.</p>
+      <div class="row r4">${sel('host','HOST_PORT')}${sel('casc','CASC_PORT')}
+      ${sel('mirr','MIRR_PORT')}
+      <div><label>SWITCHID</label><input type="text" data-gen="swid" value="${g.swid}"></div></div>
+      <div class="row r4">
+      <div><label>TPID — S-tag</label><input type="text" data-gen="tpid" value="${g.tpid}"></div>
+      <div><label>TPID2 — C-tag</label><input type="text" data-gen="tpid2" value="${g.tpid2}"></div>
+      <div><label>HOSTPRIO</label><input type="text" data-gen="hostprio" value="${g.hostprio}"></div>
+      <div><label>flags</label><div class="flags">
+        <label class="inline"><input type="checkbox" data-gen="mirrptacu" ${g.mirrptacu?'checked':''}>MIRR_PTACU</label>
+      </div></div></div>
+      <h4>management frame trapping</h4>
+      <p class="desc" style="margin-bottom:12px">A frame whose destination MAC matches
+      FLTRES under FLT is trapped to HOST_PORT. Leave both at zero to disable — needed
+      later for gPTP and EAPOL.</p>
+      <div class="row r2">
+      <div><label>MAC_FLTRES[0]</label><input type="text" data-gen="fltres0" value="${g.fltres0}"></div>
+      <div><label>MAC_FLT[0]</label><input type="text" data-gen="flt0" value="${g.flt0}"></div></div>
+      <div class="row r2">
+      <div><label>MAC_FLTRES[1]</label><input type="text" data-gen="fltres1" value="${g.fltres1}"></div>
+      <div><label>MAC_FLT[1]</label><input type="text" data-gen="flt1" value="${g.flt1}"></div></div>
+      <div class="row r4"><div><label>meta / source port</label><div class="flags">
+        <label class="inline"><input type="checkbox" data-gen="send0" ${g.send0?'checked':''}>SEND_META[0]</label>
+        <label class="inline"><input type="checkbox" data-gen="send1" ${g.send1?'checked':''}>SEND_META[1]</label>
+        <label class="inline"><input type="checkbox" data-gen="src0" ${g.src0?'checked':''}>INCL_SRCPT[0]</label>
+        <label class="inline"><input type="checkbox" data-gen="src1" ${g.src1?'checked':''}>INCL_SRCPT[1]</label>
+      </div></div></div>`;
+  }
+
+  if(cur==='05'){
+    h+=`<p class="desc">Static MAC entries. Clear every DESTPORTS bit and set ENFPORT to
+      blacklist an address; set ENFPORT with one port to bind an address to it. Lowest
+      INDEX wins when several entries match, so keep security rules near zero.</p>`;
+    M.l2.forEach((e,i)=>{
+      h+=`<h4>entry ${i} <button class="x" data-dell2="${i}">×</button></h4>
+      <div class="row r4">
+      <div><label>MACADDR</label><input type="text" data-l2="${i}" data-k="mac" value="${e.mac}"></div>
+      <div><label>MASK_MACADDR</label><input type="text" data-l2="${i}" data-k="mmac" value="${e.mmac}"></div>
+      <div><label>VLANID</label><input type="text" data-l2="${i}" data-k="vlan" value="${e.vlan}"></div>
+      <div><label>INDEX</label><input type="text" data-l2="${i}" data-k="index" value="${e.index}"></div></div>
+      <div class="row r2"><div><label>DESTPORTS</label>${
+        `<div class="pmask">${e.dest.map((d,p)=>
+          `<label>${p}<input type="checkbox" data-l2="${i}" data-k="dest" data-b="${p}"
+           ${d?'checked':''}></label>`).join('')}</div>`}</div>
+        <div><label>flags</label><div class="flags">
+        <label class="inline"><input type="checkbox" data-l2="${i}" data-k="iotag" ${e.iotag?'checked':''}>IOTAG</label>
+        <label class="inline"><input type="checkbox" data-l2="${i}" data-k="enf" ${e.enf?'checked':''}>ENFPORT</label>
+        <label class="inline"><input type="checkbox" data-l2="${i}" data-k="mirr" ${e.mirr?'checked':''}>MIRR</label>
+        <label class="inline"><input type="checkbox" data-l2="${i}" data-k="retag" ${e.retag?'checked':''}>RETAG</label>
+        </div></div></div>`;});
+    h+=`<button class="act solid" id="addl2">Add entry</button>`;
+  }
+
+  if(cur==='07'){
+    h+=`<p class="desc">VLAN membership. Not mandatory — if the block is absent, VLAN 0
+      is enabled automatically on every port. VMEMB_PORT is who may receive; VLAN_BC
+      restricts the broadcast domain; TAG_PORT decides tagged or untagged egress.</p>`;
+    M.vlan.forEach((v,i)=>{
+      h+=`<h4>VLAN ${i} <button class="x" data-delv="${i}">×</button></h4>
+      <div class="row r4"><div><label>VLANID</label>
+        <input type="text" data-v="${i}" data-k="vid" value="${v.vid}"></div><div></div><div></div><div></div></div>
+      <table class="ports"><thead><tr><th>VMEMB_PORT</th><th>VLAN_BC</th><th>TAG_PORT</th>
+      </tr></thead><tbody><tr>
+      <td><div class="pmask">${v.memb.map((d,p)=>`<label>${p}<input type="checkbox"
+        data-v="${i}" data-k="memb" data-b="${p}" ${d?'checked':''}></label>`).join('')}</div></td>
+      <td><div class="pmask">${v.bc.map((d,p)=>`<label>${p}<input type="checkbox"
+        data-v="${i}" data-k="bc" data-b="${p}" ${d?'checked':''}></label>`).join('')}</div></td>
+      <td><div class="pmask">${v.tag.map((d,p)=>`<label>${p}<input type="checkbox"
+        data-v="${i}" data-k="tag" data-b="${p}" ${d?'checked':''}></label>`).join('')}</div></td>
+      </tr></tbody></table>`;});
+    h+=`<button class="act solid" id="addv">Add VLAN</button>`;
+  }
+
+  el.innerHTML=h;
+  if(cur==='0E')updatePartSum();
+}
+
+/* ================= input handling ================= */
+document.getElementById('panel').addEventListener('input',e=>{
+  const t=e.target, v=t.type==='checkbox'?(t.checked?1:0):t.value;
+  if(t.dataset.p!==undefined&&t.dataset.k){
+    const p=M.ports[+t.dataset.p], k=t.dataset.k;
+    if(t.dataset.b!==undefined) p[k][+t.dataset.b]=v;
+    else p[k]=(t.tagName==='SELECT')?+v:v;
+  }
+  else if(t.dataset.gen!==undefined){
+    const k=t.dataset.gen; M.gen[k]=(t.tagName==='SELECT')?+t.value:v;}
+  else if(t.dataset.pol!==undefined) M.pol[t.dataset.pol]=v;
+  else if(t.dataset.lkp!==undefined) M.lkp[t.dataset.lkp]=v;
+  else if(t.dataset.lkpa!==undefined) M.lkp.maxaddr[+t.dataset.lkpa]=v;
+  else if(t.dataset.lkpv!==undefined) M.lkp[t.dataset.lkpv][+t.dataset.b]=v;
+  else if(t.dataset.avb!==undefined) M.avb[t.dataset.avb]=v;
+  else if(t.dataset.raw!==undefined) M.raw[t.dataset.raw][+t.dataset.w]=t.value;
+  else if(t.dataset.schedp!==undefined) M.schedp.sub[+t.dataset.schedp]=v;
+  else if(t.dataset.schedepp!==undefined)
+    M.schedepp[t.dataset.schedepp]=(t.tagName==='SELECT')?+t.value:v;
+  else if(t.dataset.vlfwdp!==undefined) M.vlfwdp.part[+t.dataset.vlfwdp]=v;
+  else if(t.dataset.vlfwdpf!==undefined) M.vlfwdp[t.dataset.vlfwdpf]=v;
+  else if(t.dataset.fwdp!==undefined) M.fwdp[t.dataset.fwdp]=v;
+  else if(t.dataset.part!==undefined){M.fwdp.part[+t.dataset.part]=v;updatePartSum();}
+  else if(t.dataset.l2!==undefined){
+    const e2=M.l2[+t.dataset.l2],k=t.dataset.k;
+    if(t.dataset.b!==undefined) e2.dest[+t.dataset.b]=v; else e2[k]=v;}
+  else if(t.dataset.v!==undefined){
+    const vv=M.vlan[+t.dataset.v],k=t.dataset.k;
+    if(t.dataset.b!==undefined) vv[k][+t.dataset.b]=v; else vv[k]=v;}
+  else{
+    for(const ds of ['sched','schedep','vllkp','vlpol','vlfwd','retag','cbs']){
+      if(t.dataset[ds]!==undefined){
+        const o=M[ds][+t.dataset[ds]], k=t.dataset.k;
+        if(t.dataset.b!==undefined) o[k][+t.dataset.b]=v; else o[k]=v;
+        break;
+      }
+    }
+  }
+  build();
+});
+document.getElementById('panel').addEventListener('click',e=>{
+  if(e.target.id==='addl2'){M.l2.push({mac:'00:00:00:00:00:00',vlan:'000',iotag:0,
+    dest:[0,0,0,0,0],enf:0,index:M.l2.length,mmac:'FFFFFFFFFFFF',mvlan:'FFF',
+    miotag:1,mirr:0,retag:0,takets:0,tsreg:0,mirrvlan:'000'});renderPanel();build();}
+  if(e.target.id==='addv'){M.vlan.push({vid:'000',memb:[1,1,1,1,1],bc:[1,1,1,1,1],
+    tag:[1,1,1,1,1],ing:[0,0,0,0,0],egr:[0,0,0,0,0]});renderPanel();build();}
+  const ad=e.target.dataset.add;
+  if(ad){ const proto={
+      sched:{winstindex:0,winend:0,winst:0,dest:[0,0,0,0,0],setvalid:0,txen:0,resmedia:0,vlindex:0,delta:0},
+      schedep:{subschindx:0,delta:0,address:0},
+      vllkp:{dest:[0,0,0,0,0],iscritical:0,mac:'00:00:00:00:00:00',vlanid:'000',port:0,vlanprior:0},
+      vlpol:{ttrc:0,maxlen:1518,sharindx:0,bag:0,jitter:0},
+      vlfwd:{type:0,priority:0,partition:0,dest:[0,0,0,0,0]},
+      retag:{egr:[0,0,0,0,0],ing:[0,0,0,0,0],vin:'000',veg:'000',nolearn:0,usedest:0,dest:[0,0,0,0,0]},
+      cbs:{port:0,prio:0,creditlo:0,credithi:0,sendslope:0,idleslope:0}}[ad];
+    M[ad].push(JSON.parse(JSON.stringify(proto))); renderPanel(); build(); return; }
+  const dl=e.target.dataset.del;
+  if(dl){ const [k,i]=dl.split(':');
+    if(M[k].length>1){ M[k].splice(+i,1); renderPanel(); build(); } return; }
+  const d=e.target.dataset.dell2; if(d!==undefined&&M.l2.length>1){M.l2.splice(+d,1);renderPanel();build();}
+  const dv=e.target.dataset.delv; if(dv!==undefined&&M.vlan.length>1){M.vlan.splice(+dv,1);renderPanel();build();}
+});
+
+function updatePartSum(){
+  const el=document.getElementById('partsum'); if(!el)return;
+  const s=M.fwdp.part.reduce((a,b)=>a+(parseInt(b,10)||0),0);
+  el.textContent=`total ${s} of 4096 blocks`;
+  el.className = s>4096 ? 'err' : 'warn';
+}
+
+/* ================= stream assembly ================= */
+const be=w=>[24,16,8,0].map(s=>'0x'+(((w>>>s)&0xFF).toString(16).toUpperCase()
+  .padStart(2,'0'))).join(', ');
+
+function build(){
+  const C=t=>`<span class="c">${t}</span>`, H=t=>`<span class="h">${t}</span>`;
+  let s='', all=[0xAE00030E];
+  s+=C('/* SJA1105SEL static configuration — generic loader format */')+'\n';
+  if(M.spiHdr)
+    s+=`${H(be(0x80200000))},   ${C('/* SPI write to 0x020000     */')}\n`;
+  s+=`${H(be(0xAE00030E))},   ${C('/* device ID SJA1105Q/S      */')}\n\n`;
+
+  for(const id of ORDER){
+    if(!M.on[id]) continue;
+    let data; try{ data=ENC[id](); }catch(err){ continue; }
+    const hdr=[parseInt(id,16)<<24, data.length];
+    const hc=crc32(hdr), dc=crc32(data);
+    s+=C(`/* ---- block ${id}h : ${META[id].n} ---- */`)+'\n';
+    s+=`${H(be(hdr[0]))},   ${C(`/* block id ${id}h`.padEnd(27)+'*/')}\n`;
+    s+=`${H(be(hdr[1]))},   ${C(`/* ${data.length} words`.padEnd(27)+'*/')}\n`;
+    s+=`${H(be(hc))},   ${C('/* header CRC-32             */')}\n`;
+    data.forEach(w=>{ s+=`${H(be(w))},\n`; });
+    s+=`${H(be(dc))},   ${C('/* data CRC-32               */')}\n\n`;
+    all.push(...hdr,hc,...data,dc);
+  }
+
+  all.push(0,0);
+  const gc=crc32(all);
+  s+=C('/* ---- delimiter and global CRC ---- */')+'\n';
+  s+=`${H(be(0))},\n${H(be(0))},   ${C('/* BlockLength 0 = end       */')}\n`;
+  s+=`${H(be(gc))},   ${C('/* global CRC-32             */')}\n`;
+  all.push(gc);
+
+  const code=document.getElementById('code');
+  code.innerHTML=s; code.dataset.plain=s.replace(/<[^>]+>/g,'');
+  const tot=all.length+(M.spiHdr?1:0);
+  document.getElementById('stat').textContent=
+    `${tot} words · ${tot*4} bytes`;
+
+  const ms=(tot*4*8)/(M.clk*1e6)*1000;
+  document.getElementById('stats').innerHTML=
+    `<div><b>total</b><span class="v">${all.length} words / ${all.length*4} bytes</span></div>
+     <div><b>blocks included</b><span class="v">${ORDER.filter(i=>M.on[i]).length} of ${ORDER.length}</span></div>
+     <div><b>global CRC</b><span class="v">0x${gc.toString(16).toUpperCase().padStart(8,'0')}</span></div>
+     <div><b>upload at 10 MHz</b><span class="v">${ms.toFixed(2)} ms</span></div>`;
+
+  /* sanity checks */
+  const w=[];
+  for(let i=0;i<NP;i++){const p=M.ports[i];
+    if(p.reach[i]||p.bc[i]||p.fl[i])
+      w.push(`Port ${i} appears in its own forwarding vector — frames can be echoed back.`);}
+  if(M.gen.mirr!==7) w.push('MIRR_PORT is set. Mirroring overrules VLAN and reachability limits.');
+  if(M.fwdp.part.reduce((a,b)=>a+(parseInt(b,10)||0),0)>4096)
+    w.push('PART_SPC exceeds the 4096 available memory blocks.');
+  const sg=M.ports.findIndex((p,i)=>p.xmii===3&&i!==4);
+  if(sg>=0) w.push(`Port ${sg} is set to SGMII, which only exists on port 4 — it will be tri-stated.`);
+  if(M.ports[4].xmii===3)
+    w.push('Port 4 SGMII also needs block C8h and the 0x180000 register region, which this tool does not emit.');
+  document.getElementById('checks').innerHTML =
+    w.map(x=>`<div class="warn">${x}</div>`).join('');
+}
+
+document.getElementById('copy').addEventListener('click',async ev=>{
+  try{await navigator.clipboard.writeText(document.getElementById('code').dataset.plain||'');
+    ev.target.textContent='Copied';setTimeout(()=>ev.target.textContent='Copy',1400);}
+  catch{ev.target.textContent='Select and copy';}
+});
+
+renderList(); renderPanel(); build();
+</script>
+</body>
+</html>
