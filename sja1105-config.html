@@ -69,7 +69,17 @@ table.ports td:first-child{font-family:'IBM Plex Mono',monospace;color:var(--fai
 table.ports select,table.ports input[type=text]{padding:3px 5px;font-size:12px}
 .pmask{display:flex;gap:3px}
 .pmask label{display:flex;flex-direction:column;align-items:center;gap:1px;
-  font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--faint);margin:0}
+  font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--faint);margin:0;
+  cursor:pointer}
+.ptag{font-size:8.5px;color:var(--ink-faint,var(--faint));max-width:34px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.affects{font-size:13px;color:var(--soft);background:#f4f7f8;border-left:2px solid var(--ok);
+  padding:8px 12px;margin:0 0 12px;border-radius:0 2px 2px 0}
+.affects b{font-weight:600;color:var(--ink)}
+.dpfig{border:1px solid var(--rule);border-radius:2px;padding:6px 8px 2px;
+  background:#fff;margin:0 0 8px}
+.unitline{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);
+  margin:0 0 18px}
 
 button.act{font-family:'Barlow',sans-serif;font-size:13px;background:transparent;
   color:var(--soft);border:1px solid var(--rule);border-radius:2px;padding:5px 12px;
@@ -79,6 +89,9 @@ button.act.solid{background:var(--ink);color:#fff;border-color:var(--ink)}
 button.x{border:0;background:transparent;color:var(--faint);cursor:pointer;
   font-size:15px;padding:0 3px}
 button.x:hover{color:var(--bad)}
+button.x.dup{font-size:13px}
+button.x.dup:hover{color:var(--ok)}
+.empty{color:var(--faint);font-size:13px;font-style:italic;margin:0 0 12px}
 
 /* output */
 .out{position:sticky;top:14px}
@@ -184,9 +197,17 @@ function defPort(i){return{
   reach:[1,1,1,1,1].map((_,p)=>p===i?0:1),
   fl:[1,1,1,1,1].map((_,p)=>p===i?0:1)
 }}
+const DEFBOARD=()=>[
+ {tag:'AC',   name:'Traveo IC1700',      iface:'RGMII'},
+ {tag:'PHY0', name:'MV88Q2110 IC2002',   iface:'RGMII'},
+ {tag:'—',    name:'unused',             iface:'off'},
+ {tag:'—',    name:'unused',             iface:'off'},
+ {tag:'SoC',  name:'QAM8255P IC2100',    iface:'SGMII'}
+];
 function defModel(){return{
+  board:DEFBOARD(),
   ports:[0,1,2,3,4].map(defPort),
-  gen:{host:4,casc:7,mirr:7,swid:0,hostprio:0,
+  gen:{vllupformat:0,host:4,casc:7,mirr:7,swid:0,hostprio:0,
     send0:0,send1:0,src0:0,src1:0,tpid:'8100',tpid2:'8100',mirrptacu:0,
     fltres0:'000000000000',fltres1:'000000000000',
     flt0:'000000000000',flt1:'000000000000'},
@@ -206,7 +227,8 @@ function defModel(){return{
           resmedia:0,vlindex:0,delta:0}],
   schedep:[{subschindx:0,delta:0,address:0}],
   vllkp:[{dest:[0,0,0,0,0],iscritical:0,mac:'00:00:00:00:00:00',
-          vlanid:'000',port:0,vlanprior:0}],
+          vlanid:'000',port:0,vlanprior:0,
+          vlid:'0000',egrmirr:[0,0,0,0,0],ingrmirr:0}],
   vlpol:[{ttrc:0,maxlen:1518,sharindx:0,bag:0,jitter:0}],
   vlfwd:[{type:0,priority:0,partition:0,dest:[0,0,0,0,0]}],
   schedp:{sub:[0,0,0,0,0,0,0,0]},
@@ -302,12 +324,19 @@ const ENC={
   put(b,dec(e.address,1023n)??0n,10,1);
   o.push(...toWords(b));} return o},
 
-/* --- 02h VL Lookup (VLLUPFORMAT = 0), 96 bits --- */
-'02':()=>{const o=[];for(const e of M.vllkp){const b=mkBits(96);
-  put(b,pv(e.dest),95,91);                 put(b,BigInt(e.iscritical),90,90);
-  put(b,mac(e.mac)??0n,89,42);             put(b,hx(e.vlanid,0xFFFn)??0n,41,30);
-  put(b,dec(e.port,7n)??0n,29,27);         put(b,dec(e.vlanprior,7n)??0n,26,24);
-  o.push(...toWords(b));} return o},
+/* --- 02h VL Lookup, 96 bits. Layout depends on VLLUPFORMAT (11h bit 351).
+       Table 7 when 0, Table 8 when 1. --- */
+'02':()=>{const o=[],f1=!!M.gen.vllupformat;
+  for(const e of M.vllkp){const b=mkBits(96);
+    if(f1){
+      put(b,pv(e.egrmirr),95,91);            put(b,BigInt(e.ingrmirr),90,90);
+      put(b,hx(e.vlid,0xFFFFn)??0n,57,42);   put(b,dec(e.port,7n)??0n,29,27);
+    }else{
+      put(b,pv(e.dest),95,91);               put(b,BigInt(e.iscritical),90,90);
+      put(b,mac(e.mac)??0n,89,42);           put(b,hx(e.vlanid,0xFFFn)??0n,41,30);
+      put(b,dec(e.port,7n)??0n,29,27);       put(b,dec(e.vlanprior,7n)??0n,26,24);
+    }
+    o.push(...toWords(b));} return o},
 
 /* --- 03h VL Policing, 64 bits --- */
 '03':()=>{const o=[];for(const e of M.vlpol){const b=mkBits(64);
@@ -390,7 +419,7 @@ const ENC={
 
 /* --- 11h General Parameters, 352 bits --- */
 '11':()=>{const b=mkBits(352),g=M.gen;
-  put(b,0n,351,351);                     put(b,BigInt(g.mirrptacu),350,350);
+  put(b,BigInt(g.vllupformat),351,351);  put(b,BigInt(g.mirrptacu),350,350);
   put(b,BigInt(g.swid),349,347);         put(b,BigInt(g.hostprio),346,344);
   put(b,mac(g.fltres1)??0n,343,296);     put(b,mac(g.fltres0)??0n,295,248);
   put(b,mac(g.flt1)??0n,247,200);        put(b,mac(g.flt0)??0n,199,152);
@@ -462,16 +491,166 @@ const RAWNAMES={
    a[29]='AUTONEG_ADV';      a[30]='BASIC_CONTROL';
    return a;})()
 };
+/* Which functional unit of Figure 1 each configuration block programs. */
+const UNITS={
+ '00':['SCH'],            '01':['SCH'],
+ '02':['VL_LU'],          '03':['VL_POL'],       '04':['VL_FWD'],
+ '05':['L2ADDR'],         '06':['L2_POL'],       '07':['VLAN_LU'],
+ '08':['L2_FWD'],         '09':['ING','EGR'],
+ '0A':['SCH'],            '0B':['SCH'],          '0C':['VL_FWD','DMM'],
+ '0D':['L2ADDR'],         '0E':['L2_FWD','DMM'], '10':['AVB'],
+ '11':['SCU'],            '12':['L2_FWD'],       '13':['EGR'],
+ '4E':['ING','EGR'],      '80':['CGU'],          '81':['RGU'],
+ '82':['ACU'],            'C8':['ING','EGR']
+};
+const UNITNAME={
+ ING:'RXM — receive MACs and xMII', EGR:'TXM — transmit MACs and xMII',
+ VLAN_LU:'VLAN_LU', L2ADDR:'L2ADDR_LU', L2_POL:'L2_POLICE', L2_FWD:'L2_FORW',
+ VL_LU:'VL_LU', VL_POL:'VL_POLICE', VL_FWD:'VL_FORW',
+ SCU:'SCU — status and control', DMM:'DMM / FMC / FBM — frame memory',
+ CGU:'CGU — clocks and PLL', ACU:'ACU — pad control', RGU:'RGU — reset',
+ AVB:'AVB support', SCH:'SCH — schedule engine'
+};
+
+/* Compact redraw of Figure 1 with the active unit highlighted. */
+function datapathSvg(blk){
+  const hot = new Set(UNITS[blk]||[]);
+  const B=(id,x,y,w,h,lines)=>{
+    const on=hot.has(id);
+    const fill=on?'#dcf0ef':'#fbfcfd', st=on?'#0d7b7f':'#ccd6dc';
+    const tc=on?'#0d7b7f':'#4a5b67', fw=on?'600':'400';
+    const n=lines.length, gap=11, y0=y+h/2-((n-1)*gap)/2;
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="${fill}"
+      stroke="${st}" stroke-width="${on?1.4:0.8}"/>`+
+      lines.map((t,i)=>`<text x="${x+w/2}" y="${y0+i*gap}" text-anchor="middle"
+        dominant-baseline="central" font-family="'IBM Plex Mono',monospace"
+        font-size="8.5" fill="${tc}" font-weight="${fw}">${t}</text>`).join('');
+  };
+  const A=(x1,y1,x2,y2)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+    stroke="#a8b4bb" stroke-width="1" marker-end="url(#dpa)"/>`;
+  return `<svg viewBox="0 0 620 208" width="100%" role="img"
+    aria-label="Position of block ${blk}h in the switch datapath">
+    <defs><marker id="dpa" viewBox="0 0 8 8" refX="6.5" refY="4" markerWidth="5"
+      markerHeight="5" orient="auto"><path d="M1 1L6 4L1 7" fill="none"
+      stroke="#a8b4bb" stroke-width="1.2" stroke-linecap="round"/></marker></defs>
+    ${B('ING',8,26,74,100,['xMII','RX MAC','INPUT','QUEUE'])}
+    ${B('VLAN_LU',98,26,86,26,['VLAN_LU'])}
+    ${B('L2ADDR',98,58,86,26,['L2ADDR_LU'])}
+    ${B('VL_LU',98,100,86,26,['VL_LU'])}
+    ${B('L2_POL',198,42,80,26,['L2_POLICE'])}
+    ${B('VL_POL',198,100,80,26,['VL_POLICE'])}
+    ${B('L2_FWD',292,42,80,26,['L2_FORW'])}
+    ${B('VL_FWD',292,100,80,26,['VL_FORW'])}
+    ${B('EGR',386,26,74,100,['TX MAC','xMII'])}
+    ${A(84,60,96,45)}${A(84,70,96,71)}${A(84,86,96,113)}
+    ${A(186,39,196,52)}${A(186,71,196,58)}${A(186,113,196,113)}
+    ${A(280,55,290,55)}${A(280,113,290,113)}
+    ${A(374,55,384,66)}${A(374,113,384,90)}
+    ${B('SCU',8,150,76,24,['SCU'])}
+    ${B('DMM',92,150,96,24,['DMM/FMC/FBM'])}
+    ${B('SCH',196,150,60,24,['SCH'])}
+    ${B('AVB',264,150,60,24,['AVB'])}
+    ${B('CGU',332,150,60,24,['CGU'])}
+    ${B('ACU',400,150,60,24,['ACU'])}
+    ${B('RGU',468,150,60,24,['RGU'])}
+    <text x="8" y="196" font-family="'Barlow',sans-serif" font-size="10.5"
+      fill="#8b9aa4">Datasheet Figure 1, simplified. Highlighted units are the ones this block programs.</text>
+  </svg>`;
+}
+
+/* Which functional unit of Figure 1 each block configures.
+   stage: position in the datapath, or 0 for off-datapath units. */
+const UNIT={
+ '00':{u:'SCHEDULE ENGINE',            a:'SCH',        stage:0},
+ '01':{u:'SCHEDULE ENGINE',            a:'SCH',        stage:0},
+ '02':{u:'VIRTUAL LINK LOOKUP',        a:'VL_LU',      stage:4},
+ '03':{u:'VIRTUAL LINK POLICING',      a:'VL_POLICE',  stage:5},
+ '04':{u:'VIRTUAL LINK FORWARDING',    a:'VL_FORW',    stage:6},
+ '05':{u:'L2 ADDRESS LOOKUP',          a:'L2ADDR_LU',  stage:4},
+ '06':{u:'L2 POLICING',                a:'L2_POLICE',  stage:5},
+ '07':{u:'VLAN LOOKUP',                a:'VLAN_LU',    stage:4},
+ '08':{u:'L2 FORWARDING',              a:'L2_FORW',    stage:6},
+ '09':{u:'RX MAC and TX MAC',          a:'RXM + TXM',  stage:2},
+ '0A':{u:'SCHEDULE ENGINE',            a:'SCH',        stage:0},
+ '0B':{u:'SCHEDULE ENGINE + clock sync', a:'SCH + CSS', stage:0},
+ '0C':{u:'VL FORWARDING + frame memory', a:'VL_FORW + FBM', stage:6},
+ '0D':{u:'L2 ADDRESS LOOKUP',          a:'L2ADDR_LU',  stage:4},
+ '0E':{u:'L2 FORWARDING + frame memory', a:'L2_FORW + FBM', stage:6},
+ '10':{u:'AUDIO VIDEO BRIDGING SUPPORT', a:'AVB',      stage:0},
+ '11':{u:'STATUS AND CONTROL UNIT',    a:'SCU',        stage:0},
+ '12':{u:'L2 FORWARDING',              a:'L2_FORW',    stage:6},
+ '13':{u:'TX MAC — egress shaping',    a:'TXM',        stage:7},
+ '4E':{u:'xMII pads, RX MAC and TX MAC', a:'xMII + RXM + TXM', stage:1},
+ '80':{u:'CLOCK GENERATION UNIT',      a:'CGU',        stage:0},
+ '81':{u:'RESET GENERATION UNIT',      a:'RGU',        stage:0},
+ '82':{u:'AUXILIARY CONFIGURATION UNIT', a:'ACU',      stage:0},
+ 'C8':{u:'SGMII on port 4',            a:'SGMII',      stage:1}
+};
+const STAGES=[
+ {n:'xMII / SGMII pads',  blocks:['4E','C8','82']},
+ {n:'RX MAC  (RXM)',      blocks:['09']},
+ {n:'Input Queue  (IQ)',  blocks:[]},
+ {n:'Lookup',             blocks:['07','05','02']},
+ {n:'Policing',           blocks:['06','03']},
+ {n:'Forwarding',         blocks:['08','04','12']},
+ {n:'TX MAC  (TXM)',      blocks:['09','13']}
+];
+const OFFPATH=[
+ {n:'STATUS AND CONTROL UNIT  (SCU)',   blocks:['11']},
+ {n:'Frame memory  (DMM / FMC / FBM)',  blocks:['0E','0C']},
+ {n:'SCHEDULE ENGINE  (SCH)',           blocks:['00','01','0A','0B']},
+ {n:'AVB SUPPORT',                      blocks:['10']},
+ {n:'CGU oscillator and PLL',           blocks:['80']},
+ {n:'RGU',                              blocks:['81']},
+ {n:'ACU',                               blocks:['82']},
+ {n:'CLOCK SYNC SUBSYSTEM  (CSS)',      blocks:[]}
+];
+const AFFECTS={
+ '00':p=>`Drives the <b>schedule engine</b>, which gates transmission at the TX MACs. Timing only — reachability is unchanged.`,
+ '01':p=>`Tells the <b>schedule engine</b> where each subschedule starts.`,
+ '02':p=>`Programs <b>VL_LU</b>, the first stage of the critical-traffic path out of the input queue. PORT names a physical port.`,
+ '03':p=>`Programs <b>VL_POLICE</b>, which sits between VL_LU and VL_FORW and drops streams that exceed their budget.`,
+ '04':p=>`Programs <b>VL_FORW</b>, the last critical-path stage before the TX MACs.`,
+ '05':p=>`Programs <b>L2ADDR_LU</b>, one of two lookups feeding L2_POLICE. DESTPORTS names physical ports — ${p}.`,
+ '06':p=>`Programs <b>L2_POLICE</b>, which every best-effort frame crosses after VLAN_LU and L2ADDR_LU. 45 entries cover five ports × eight priorities.`,
+ '07':p=>`Programs <b>VLAN_LU</b>, the other lookup feeding L2_POLICE — ${p}.`,
+ '08':p=>`Programs <b>L2_FORW</b>, the last best-effort stage before the TX MACs — ${p}.`,
+ '09':p=>`Configures the <b>RX and TX MACs</b> themselves — speed, VLAN defaults, learning, drop rules — ${p}.`,
+ '0A':p=>`Subschedule boundaries for the <b>schedule engine</b>.`,
+ '0B':p=>`Clock source and active subschedule count for the <b>schedule engine</b>.`,
+ '0C':p=>`Reserves <b>frame memory</b> (DMM/FMC/FBM) for critical traffic leaving VL_FORW.`,
+ '0D':p=>`Learning limits inside <b>L2ADDR_LU</b> — how many addresses each port may learn — ${p}.`,
+ '0E':p=>`Partitions <b>frame memory</b> across the eight priorities used by L2_FORW.`,
+ '10':p=>`Configures <b>AVB support</b> — meta frame addressing and cascade role.`,
+ '11':p=>`Global settings held in the <b>status and control unit</b>. HOST_PORT selects which device receives trapped frames.`,
+ '12':p=>`VLAN translation applied in <b>L2_FORW</b>, between an ingress and an egress port set.`,
+ '13':p=>`Credit-based shapers in the <b>TX MACs</b>, bound to one port and one priority queue.`,
+ '4E':p=>`Selects the <b>xMII</b> interface type and clock role at both the RX and TX side of every port.`,
+ '80':p=>`Raw <b>CGU</b> registers — oscillator, PLLs and the per-port MII clocks.`,
+ '81':p=>`Raw <b>RGU</b> register — reset control.`,
+ '82':p=>`Raw <b>ACU</b> registers — pad drive and delay for MII0..MII4.`,
+ 'C8':p=>`Raw SGMII registers for the <b>port 4 xMII/SGMII</b> block — ${M.board[4].name}.`
+};
+function portSummary(){
+  return M.board.map((b,i)=>b.iface==='off'?null:`port ${i} = ${b.tag}`)
+    .filter(Boolean).join(', ');
+}
 const ORDER=['00','01','02','03','04','05','06','07','08','09','0A','0B','0C','0D','0E','10','11','12','13','4E','80','81','82','C8'];
 let cur='4E';
 
 /* ================= UI: block list ================= */
 function renderList(){
   document.getElementById('blocklist').innerHTML='<h3>blocks</h3>'+
-   `<div class="bitem" style="border-bottom:1px solid var(--rule);margin-bottom:6px;
+   `<div class="bitem" data-b="DATAPATH" aria-current="${cur==='DATAPATH'}">
+     <span class="bid">▤</span><span>Datapath</span></div>
+    <div class="bitem" data-b="BOARD" aria-current="${cur==='BOARD'}"
+     style="border-bottom:1px solid var(--rule);margin-bottom:6px;padding-bottom:9px">
+     <span class="bid">◧</span><span>Board map</span></div>
+    <div class="bitem" style="border-bottom:1px solid var(--rule);margin-bottom:6px;
      padding-bottom:9px"><input type="checkbox" id="spihdr" ${M.spiHdr?'checked':''}>
      <span style="font-size:12.5px">SPI write header</span></div>`+
-   ORDER.map(id=>`<div class="bitem" data-b="${id}" aria-current="${cur===id}">
+   ORDER.map(id=>`<div class="bitem" data-b="${id}" aria-current="${cur===id}"
+     title="${UNIT[id]?UNIT[id].u:''}">
      <input type="checkbox" data-on="${id}" ${M.on[id]?'checked':''}
        ${META[id].req?'disabled':''} aria-label="Include block ${id}">
      <span class="bid">${id}h</span><span>${META[id].n}</span>
@@ -491,22 +670,80 @@ document.getElementById('blocklist').addEventListener('click',e=>{
 const XMII=['MII','RMII','RGMII','SGMII / off'];
 const SPD=['dynamic (host sets)','1000 Mbit/s','100 Mbit/s','10 Mbit/s'];
 const pmaskHtml=(k,i,arr)=>`<div class="pmask">${arr.map((d,p)=>
-  `<label>${p}<input type="checkbox" data-p="${i}" data-k="${k}" data-b="${p}"
-   ${d?'checked':''} aria-label="${k} port ${p}"></label>`).join('')}</div>`;
+  `<label title="${M.board[p].name}">${p}<input type="checkbox" data-p="${i}" data-k="${k}"
+   data-b="${p}" ${d?'checked':''} aria-label="${k} port ${p} — ${M.board[p].name}">
+   <span class="ptag">${M.board[p].tag}</span></label>`).join('')}</div>`;
 
 function renderPanel(){
   const el=document.getElementById('panel'); let h='';
+  if(cur==='DATAPATH'){
+    const chip=b=>`<button class="chip" data-goto="${b}" title="${UNIT[b].u}">${b}h
+      <span>${META[b].n}</span></button>`;
+    h+=`<h2>Datapath</h2>
+      <p class="desc">Where each configuration block lands inside the switch, following
+      Figure 1 of the datasheet. A frame travels down this list; blocks attached to a
+      stage configure the unit that acts at that point. Click any block to open it.</p>`;
+    STAGES.forEach((st,i)=>{
+      h+=`<div class="stage">
+        <div class="stagehd"><span class="stagenum">${i+1}</span>${st.n}</div>
+        <div class="chips">${st.blocks.length
+          ? st.blocks.map(chip).join('')
+          : '<span class="empty" style="margin:0">no configurable block</span>'}</div>
+      </div>`;
+      if(i<STAGES.length-1) h+=`<div class="stagearrow">↓</div>`;
+    });
+    h+=`<h4 style="margin-top:26px">Units outside the datapath</h4>`;
+    OFFPATH.forEach(o=>{
+      h+=`<div class="stage off">
+        <div class="stagehd">${o.n}</div>
+        <div class="chips">${o.blocks.length
+          ? o.blocks.map(chip).join('')
+          : '<span class="empty" style="margin:0">0Fh — not implemented here</span>'}</div>
+      </div>`;
+    });
+    h+=`<div class="warn" style="margin-top:16px">Blocks 09h and 82h appear twice
+      because they configure units on both the receive and transmit side.</div>`;
+    el.innerHTML=h; return;
+  }
+
+  if(cur==='BOARD'){
+    h+=`<h2>Board map</h2>
+      <p class="desc">What each switch port physically connects to. Everything else in
+      this tool labels its port checkboxes from here, so set it once and the rest reads
+      in terms of your hardware rather than bare port numbers.</p>
+      <table class="ports"><thead><tr><th></th><th>short tag</th><th>device</th>
+      <th>interface</th></tr></thead><tbody>`;
+    for(let i=0;i<NP;i++){const b=M.board[i];
+      h+=`<tr><td>${i}</td>
+        <td><input type="text" data-brd="${i}" data-k="tag" value="${b.tag}" style="width:64px"></td>
+        <td><input type="text" data-brd="${i}" data-k="name" value="${b.name}"></td>
+        <td><input type="text" data-brd="${i}" data-k="iface" value="${b.iface}" style="width:74px"></td>
+      </tr>`;}
+    h+=`</tbody></table>
+      <div class="warn" style="margin-top:12px">Set interface to <span class="mono">off</span>
+      for an unused port and it is treated as inactive in the summaries. This panel is
+      documentation only — it does not itself change any encoded block.</div>`;
+    el.innerHTML=h; return;
+  }
+
   const m=META[cur];
   h+=`<h2>${m.n} <span style="font-family:'IBM Plex Mono',monospace;font-size:14px;
       color:var(--faint);font-weight:400">block ${cur}h</span></h2>`;
+  if(AFFECTS[cur]){
+    const u=(UNITS[cur]||[]).map(x=>UNITNAME[x]).filter(Boolean);
+    h+=`<p class="affects">${AFFECTS[cur](portSummary())}</p>`;
+    h+=`<div class="dpfig">${datapathSvg(cur)}</div>`;
+    if(u.length) h+=`<p class="unitline">Figure 1 unit${u.length>1?'s':''}: ${u.join(' · ')}</p>`;
+  }
 
   if(cur==='4E'){
     h+=`<p class="desc">Interface type and role per port. Role is decided by what sits at
       the far end: a real PHY means the switch is the MAC, another MAC means the switch
       must act as the PHY and drive the clocks.</p>
-      <table class="ports"><thead><tr><th></th><th>xMII mode</th><th>role</th></tr></thead><tbody>`;
+      <table class="ports"><thead><tr><th></th><th>connects to</th><th>xMII mode</th>
+      <th>role</th></tr></thead><tbody>`;
     for(let i=0;i<NP;i++){const p=M.ports[i];
-      h+=`<tr><td>${i}</td>
+      h+=`<tr><td>${i}</td><td style="color:var(--soft)">${M.board[i].name}</td>
         <td><select data-p="${i}" data-k="xmii">${XMII.map((x,v)=>
           `<option value="${v}" ${p.xmii==v?'selected':''}>${x}</option>`).join('')}</select></td>
         <td><select data-p="${i}" data-k="role">
@@ -520,11 +757,11 @@ function renderPanel(){
     h+=`<p class="desc">Per-port MAC settings. Leave speed on <em>dynamic</em> if the host
       will push the negotiated PHY speed at runtime — the switch has no MDIO and cannot
       learn it by itself. Output queues are split evenly across the eight priorities.</p>
-      <table class="ports"><thead><tr><th></th><th>speed</th><th>VLAN</th><th>pri</th>
-      <th>in</th><th>eg</th><th>learn</th><th>drop untag</th><th>drop dtag</th></tr></thead><tbody>`;
+      <table class="ports"><thead><tr><th></th><th>device</th><th>speed</th><th>VLAN</th>
+      <th>pri</th><th>in</th><th>eg</th><th>learn</th><th>untag</th><th>dtag</th></tr></thead><tbody>`;
     for(let i=0;i<NP;i++){const p=M.ports[i];
       const cb=(k)=>`<input type="checkbox" data-p="${i}" data-k="${k}" ${p[k]?'checked':''}>`;
-      h+=`<tr><td>${i}</td>
+      h+=`<tr><td>${i}</td><td style="color:var(--soft);font-size:11.5px">${M.board[i].tag}</td>
         <td><select data-p="${i}" data-k="speed">${SPD.map((s,v)=>
           `<option value="${v}" ${p.speed==v?'selected':''}>${s}</option>`).join('')}</select></td>
         <td><input type="text" data-p="${i}" data-k="vlanid" value="${p.vlanid}" style="width:46px"></td>
@@ -538,10 +775,10 @@ function renderPanel(){
     h+=`<p class="desc">Forwarding domains, one row per ingress port. A port should never
       appear in its own vectors or a frame can be echoed back out of the interface it
       arrived on. Priority mapping is set to identity.</p>
-      <table class="ports"><thead><tr><th></th><th>REACH_PORT</th><th>BC_DOMAIN</th>
-      <th>FL_DOMAIN</th></tr></thead><tbody>`;
+      <table class="ports"><thead><tr><th></th><th>ingress from</th><th>REACH_PORT</th>
+      <th>BC_DOMAIN</th><th>FL_DOMAIN</th></tr></thead><tbody>`;
     for(let i=0;i<NP;i++){const p=M.ports[i];
-      h+=`<tr><td>${i}</td><td>${pmaskHtml('reach',i,p.reach)}</td>
+      h+=`<tr><td>${i}</td><td style="color:var(--soft);font-size:11.5px">${M.board[i].tag}</td><td>${pmaskHtml('reach',i,p.reach)}</td>
         <td>${pmaskHtml('bc',i,p.bc)}</td><td>${pmaskHtml('fl',i,p.fl)}</td></tr>`;}
     h+='</tbody></table>';
   }
@@ -578,7 +815,9 @@ function renderPanel(){
   const chk=(ds,i,k,v)=>`<input type="checkbox" data-${ds}="${i}" data-k="${k}" ${v?'checked':''}>`;
   const txt=(ds,i,k,v,w)=>`<input type="text" data-${ds}="${i}" data-k="${k}" value="${v}"${w?` style="width:${w}px"`:''}>`;
   const pmk=(ds,i,k,arr)=>`<div class="pmask">${arr.map((d,q)=>
-    `<label>${q}<input type="checkbox" data-${ds}="${i}" data-k="${k}" data-b="${q}" ${d?'checked':''}></label>`).join('')}</div>`;
+    `<label title="${M.board[q].name}">${q}<input type="checkbox" data-${ds}="${i}"
+     data-k="${k}" data-b="${q}" ${d?'checked':''}>
+     <span class="ptag">${M.board[q].tag}</span></label>`).join('')}</div>`;
 
   if(META[cur].raw){
     const n=META[cur].raw, names=RAWNAMES[cur];
@@ -603,7 +842,7 @@ function renderPanel(){
     h+=`<p class="desc">Time-aware gating events. Each entry fires DELTA units after the
       previous one and opens or closes transmission on the ports in DESTPORTS. Requires
       blocks 01h, 0Ah and 0Bh alongside it.</p>`;
-    M.sched.forEach((e,i)=>{h+=`<h4>event ${i} <button class="x" data-del="sched:${i}">×</button></h4>
+    M.sched.forEach((e,i)=>{h+=`<h4>event ${i} <button class="x dup" data-dup="sched:${i}" title="Duplicate">⧉</button><button class="x" data-del="sched:${i}" title="Remove">×</button></h4>
       <div class="row r4">
       <div><label>DELTA</label>${txt('sched',i,'delta',e.delta)}</div>
       <div><label>VLINDEX</label>${txt('sched',i,'vlindex',e.vlindex)}</div>
@@ -616,40 +855,61 @@ function renderPanel(){
       <label class="inline">${chk('sched',i,'winend',e.winend)}WINEND</label>
       <label class="inline">${chk('sched',i,'setvalid',e.setvalid)}SETVALID</label>
       </div></div></div>`;});
+    if(M.sched.length===0) h+=`<div class="empty">No entries.</div>`;
     h+=`<button class="act solid" data-add="sched">Add event</button>`;
   }
 
   if(cur==='01'){
     h+=`<p class="desc">Where each subschedule starts. DELTA is in multiples of 200 ns;
       ADDRESS indexes into the Schedule table.</p>`;
-    M.schedep.forEach((e,i)=>{h+=`<h4>entry point ${i} <button class="x" data-del="schedep:${i}">×</button></h4>
+    M.schedep.forEach((e,i)=>{h+=`<h4>entry point ${i} <button class="x dup" data-dup="schedep:${i}" title="Duplicate">⧉</button><button class="x" data-del="schedep:${i}" title="Remove">×</button></h4>
       <div class="row r3">
       <div><label>SUBSCHINDX</label>${txt('schedep',i,'subschindx',e.subschindx)}</div>
       <div><label>DELTA — ×200 ns</label>${txt('schedep',i,'delta',e.delta)}</div>
       <div><label>ADDRESS</label>${txt('schedep',i,'address',e.address)}</div></div>`;});
+    if(M.schedep.length===0) h+=`<div class="empty">No entries.</div>`;
     h+=`<button class="act solid" data-add="schedep">Add entry point</button>`;
   }
 
   if(cur==='02'){
-    h+=`<p class="desc">Virtual Link identification. A frame matching destination MAC,
-      VLAN, priority and ingress port is bound to this VL. Assumes VLLUPFORMAT = 0.</p>`;
-    M.vllkp.forEach((e,i)=>{h+=`<h4>VL ${i} <button class="x" data-del="vllkp:${i}">×</button></h4>
-      <div class="row r4">
-      <div><label>MACADDR</label>${txt('vllkp',i,'mac',e.mac)}</div>
-      <div><label>VLANID</label>${txt('vllkp',i,'vlanid',e.vlanid,52)}</div>
-      <div><label>PORT</label>${txt('vllkp',i,'port',e.port,40)}</div>
-      <div><label>VLANPRIOR</label>${txt('vllkp',i,'vlanprior',e.vlanprior,40)}</div></div>
-      <div class="row r2"><div><label>DESTPORTS</label>${pmk('vllkp',i,'dest',e.dest)}</div>
-      <div><label>flags</label><div class="flags">
-      <label class="inline">${chk('vllkp',i,'iscritical',e.iscritical)}ISCRITICAL</label>
-      </div></div></div>`;});
+    const f1=!!M.gen.vllupformat;
+    h+=`<p class="desc">Virtual Link identification — which stream a frame belongs to.
+      ${f1
+        ? 'Currently <strong>VLLUPFORMAT = 1</strong> (Table 8): match on VL ID and ingress port. Sort entries ascending by VLID, then PORT.'
+        : 'Currently <strong>VLLUPFORMAT = 0</strong> (Table 7): match on destination MAC, VLAN, ingress port and priority. Sort entries ascending by MACADDR, VLANID, PORT, VLANPRIOR.'}
+      Change the format in block 11h. Entry position is what links this table to 03h
+      VL Policing.</p>`;
+    M.vllkp.forEach((e,i)=>{
+      h+=`<h4>VL ${i} <button class="x dup" data-dup="vllkp:${i}" title="Duplicate">⧉</button><button class="x" data-del="vllkp:${i}" title="Remove">×</button></h4>`;
+      if(f1){
+        h+=`<div class="row r2">
+          <div><label>VLID — 16 bit</label>${txt('vllkp',i,'vlid',e.vlid,80)}</div>
+          <div><label>PORT</label>${txt('vllkp',i,'port',e.port,40)}</div></div>
+          <div class="row r2">
+          <div><label>EGRMIRR — mirror on egress to</label>${pmk('vllkp',i,'egrmirr',e.egrmirr)}</div>
+          <div><label>flags</label><div class="flags">
+          <label class="inline">${chk('vllkp',i,'ingrmirr',e.ingrmirr)}INGRMIRR</label>
+          </div></div></div>`;
+      }else{
+        h+=`<div class="row r4">
+          <div><label>MACADDR</label>${txt('vllkp',i,'mac',e.mac)}</div>
+          <div><label>VLANID</label>${txt('vllkp',i,'vlanid',e.vlanid,52)}</div>
+          <div><label>PORT</label>${txt('vllkp',i,'port',e.port,40)}</div>
+          <div><label>VLANPRIOR</label>${txt('vllkp',i,'vlanprior',e.vlanprior,40)}</div></div>
+          <div class="row r2">
+          <div><label>DESTPORTS — used when ISCRITICAL is clear</label>${pmk('vllkp',i,'dest',e.dest)}</div>
+          <div><label>flags</label><div class="flags">
+          <label class="inline">${chk('vllkp',i,'iscritical',e.iscritical)}ISCRITICAL</label>
+          </div></div></div>`;
+      }});
+    if(M.vllkp.length===0) h+=`<div class="empty">No entries. Every critical frame is dropped without this table.</div>`;
     h+=`<button class="act solid" data-add="vllkp">Add VL</button>`;
   }
 
   if(cur==='03'){
     h+=`<p class="desc">Per-VL policing. TTRC selects the entry format: time-triggered
       uses MAXLEN and SHARINDX only, rate-constrained adds BAG and JITTER.</p>`;
-    M.vlpol.forEach((e,i)=>{h+=`<h4>VL ${i} <button class="x" data-del="vlpol:${i}">×</button></h4>
+    M.vlpol.forEach((e,i)=>{h+=`<h4>VL ${i} <button class="x dup" data-dup="vlpol:${i}" title="Duplicate">⧉</button><button class="x" data-del="vlpol:${i}" title="Remove">×</button></h4>
       <div class="row r4">
       <div><label>MAXLEN</label>${txt('vlpol',i,'maxlen',e.maxlen)}</div>
       <div><label>SHARINDX</label>${txt('vlpol',i,'sharindx',e.sharindx)}</div>
@@ -658,12 +918,13 @@ function renderPanel(){
       <div class="row"><div><label>type</label><div class="flags">
       <label class="inline">${chk('vlpol',i,'ttrc',e.ttrc)}TTRC — time-triggered (BAG and JITTER ignored)</label>
       </div></div></div>`;});
+    if(M.vlpol.length===0) h+=`<div class="empty">No entries.</div>`;
     h+=`<button class="act solid" data-add="vlpol">Add VL</button>`;
   }
 
   if(cur==='04'){
     h+=`<p class="desc">Where each VL egresses, and which memory partition it draws from.</p>`;
-    M.vlfwd.forEach((e,i)=>{h+=`<h4>VL ${i} <button class="x" data-del="vlfwd:${i}">×</button></h4>
+    M.vlfwd.forEach((e,i)=>{h+=`<h4>VL ${i} <button class="x dup" data-dup="vlfwd:${i}" title="Duplicate">⧉</button><button class="x" data-del="vlfwd:${i}" title="Remove">×</button></h4>
       <div class="row r4">
       <div><label>PRIORITY</label>${txt('vlfwd',i,'priority',e.priority)}</div>
       <div><label>PARTITION</label>${txt('vlfwd',i,'partition',e.partition)}</div>
@@ -671,6 +932,7 @@ function renderPanel(){
       <div><label>flags</label><div class="flags">
       <label class="inline">${chk('vlfwd',i,'type',e.type)}TYPE — time-triggered</label>
       </div></div></div>`;});
+    if(M.vlfwd.length===0) h+=`<div class="empty">No entries.</div>`;
     h+=`<button class="act solid" data-add="vlfwd">Add VL</button>`;
   }
 
@@ -708,7 +970,7 @@ function renderPanel(){
   if(cur==='12'){
     h+=`<p class="desc">VLAN translation. A frame arriving on an ING_PORT with VLAN_ING
       is copied and retagged to VLAN_EGR on the EGR_PORT set.</p>`;
-    M.retag.forEach((e,i)=>{h+=`<h4>rule ${i} <button class="x" data-del="retag:${i}">×</button></h4>
+    M.retag.forEach((e,i)=>{h+=`<h4>rule ${i} <button class="x dup" data-dup="retag:${i}" title="Duplicate">⧉</button><button class="x" data-del="retag:${i}" title="Remove">×</button></h4>
       <div class="row r2">
       <div><label>VLAN_ING</label>${txt('retag',i,'vin',e.vin,60)}</div>
       <div><label>VLAN_EGR</label>${txt('retag',i,'veg',e.veg,60)}</div></div>
@@ -720,13 +982,14 @@ function renderPanel(){
         <label class="inline">${chk('retag',i,'usedest',e.usedest)}USE_DEST_PORTS</label>
         <label class="inline">${chk('retag',i,'nolearn',e.nolearn)}DO_NOT_LEARN</label>
       </div></td></tr></tbody></table>`;});
+    if(M.retag.length===0) h+=`<div class="empty">No entries.</div>`;
     h+=`<button class="act solid" data-add="retag">Add rule</button>`;
   }
 
   if(cur==='13'){
     h+=`<p class="desc">Up to 16 shaper blocks, each bound to one port and priority
       queue. Slopes are in bytes per second.</p>`;
-    M.cbs.forEach((e,i)=>{h+=`<h4>shaper ${i} <button class="x" data-del="cbs:${i}">×</button></h4>
+    M.cbs.forEach((e,i)=>{h+=`<h4>shaper ${i} <button class="x dup" data-dup="cbs:${i}" title="Duplicate">⧉</button><button class="x" data-del="cbs:${i}" title="Remove">×</button></h4>
       <div class="row r3">
       <div><label>CBS_PORT</label>${txt('cbs',i,'port',e.port)}</div>
       <div><label>CBS_PRIO</label>${txt('cbs',i,'prio',e.prio)}</div>
@@ -736,6 +999,7 @@ function renderPanel(){
       <div><label>SEND_SLOPE</label>${txt('cbs',i,'sendslope',e.sendslope)}</div>
       <div><label>CREDIT_HI</label>${txt('cbs',i,'credithi',e.credithi)}</div>
       <div><label>CREDIT_LO</label>${txt('cbs',i,'creditlo',e.creditlo)}</div></div>`;});
+    if(M.cbs.length===0) h+=`<div class="empty">No entries.</div>`;
     h+=`<button class="act solid" data-add="cbs">Add shaper</button>`;
   }
 
@@ -762,11 +1026,12 @@ function renderPanel(){
         <label class="inline"><input type="checkbox" data-lkp="nomgmt" ${k.nomgmt?'checked':''}>NO_MGMT_LEARN</label>
       </div></div></div>
       <h4>per port</h4>
-      <table class="ports"><thead><tr><th></th><th>MAXADDRP</th><th>DRPNOLEARN</th>
-      <th>DRPBC</th><th>DRPMC</th><th>DRPUNI</th></tr></thead><tbody>`;
+      <table class="ports"><thead><tr><th></th><th>device</th><th>MAXADDRP</th>
+      <th>DRPNOLEARN</th><th>DRPBC</th><th>DRPMC</th><th>DRPUNI</th></tr></thead><tbody>`;
     for(let i=0;i<NP;i++){
       const c=(f)=>`<input type="checkbox" data-lkpv="${f}" data-b="${i}" ${k[f][i]?'checked':''}>`;
       h+=`<tr><td>${i}</td>
+        <td style="color:var(--soft);font-size:11.5px">${M.board[i].tag}</td>
         <td><input type="text" data-lkpa="${i}" value="${k.maxaddr[i]}" style="width:56px"></td>
         <td>${c('drpnolearn')}</td><td>${c('drpbc')}</td><td>${c('drpmc')}</td>
         <td>${c('drpuni')}</td></tr>`;}
@@ -793,7 +1058,7 @@ function renderPanel(){
     const g=M.gen;
     const sel=(k,lbl)=>`<div><label>${lbl}</label><select data-gen="${k}">
       ${[0,1,2,3,4,5,6,7].map(v=>`<option value="${v}" ${g[k]==v?'selected':''}>
-        ${v<5?'port '+v:(v===7?'7 — none':v)}</option>`).join('')}</select></div>`;
+        ${v<5?`port ${v} — ${M.board[v].tag}`:(v===7?'7 — none':v)}</option>`).join('')}</select></div>`;
     h+=`<p class="desc">Global switch settings. HOST_PORT is the port facing the
       management CPU. Set MIRR_PORT to 7 in production — mirroring overrules every VLAN
       and reachability restriction you configure elsewhere.</p>
@@ -806,7 +1071,11 @@ function renderPanel(){
       <div><label>HOSTPRIO</label><input type="text" data-gen="hostprio" value="${g.hostprio}"></div>
       <div><label>flags</label><div class="flags">
         <label class="inline"><input type="checkbox" data-gen="mirrptacu" ${g.mirrptacu?'checked':''}>MIRR_PTACU</label>
+        <label class="inline"><input type="checkbox" data-gen="vllupformat" ${g.vllupformat?'checked':''}>VLLUPFORMAT</label>
       </div></div></div>
+      <div class="warn" style="margin-top:2px">VLLUPFORMAT changes the layout of every
+      entry in block 02h. Cleared selects Table 7 — match on MAC, VLAN, port and
+      priority. Set selects Table 8 — match on VL ID and port.</div>
       <h4>management frame trapping</h4>
       <p class="desc" style="margin-bottom:12px">A frame whose destination MAC matches
       FLTRES under FLT is trapped to HOST_PORT. Leave both at zero to disable — needed
@@ -830,7 +1099,7 @@ function renderPanel(){
       blacklist an address; set ENFPORT with one port to bind an address to it. Lowest
       INDEX wins when several entries match, so keep security rules near zero.</p>`;
     M.l2.forEach((e,i)=>{
-      h+=`<h4>entry ${i} <button class="x" data-dell2="${i}">×</button></h4>
+      h+=`<h4>entry ${i} <button class="x dup" data-dupl2="${i}" title="Duplicate">⧉</button><button class="x" data-dell2="${i}" title="Remove">×</button></h4>
       <div class="row r4">
       <div><label>MACADDR</label><input type="text" data-l2="${i}" data-k="mac" value="${e.mac}"></div>
       <div><label>MASK_MACADDR</label><input type="text" data-l2="${i}" data-k="mmac" value="${e.mmac}"></div>
@@ -838,14 +1107,16 @@ function renderPanel(){
       <div><label>INDEX</label><input type="text" data-l2="${i}" data-k="index" value="${e.index}"></div></div>
       <div class="row r2"><div><label>DESTPORTS</label>${
         `<div class="pmask">${e.dest.map((d,p)=>
-          `<label>${p}<input type="checkbox" data-l2="${i}" data-k="dest" data-b="${p}"
-           ${d?'checked':''}></label>`).join('')}</div>`}</div>
+          `<label title="${M.board[p].name}">${p}<input type="checkbox" data-l2="${i}"
+           data-k="dest" data-b="${p}" ${d?'checked':''}>
+           <span class="ptag">${M.board[p].tag}</span></label>`).join('')}</div>`}</div>
         <div><label>flags</label><div class="flags">
         <label class="inline"><input type="checkbox" data-l2="${i}" data-k="iotag" ${e.iotag?'checked':''}>IOTAG</label>
         <label class="inline"><input type="checkbox" data-l2="${i}" data-k="enf" ${e.enf?'checked':''}>ENFPORT</label>
         <label class="inline"><input type="checkbox" data-l2="${i}" data-k="mirr" ${e.mirr?'checked':''}>MIRR</label>
         <label class="inline"><input type="checkbox" data-l2="${i}" data-k="retag" ${e.retag?'checked':''}>RETAG</label>
         </div></div></div>`;});
+    if(M.l2.length===0) h+=`<div class="empty">No static entries.</div>`;
     h+=`<button class="act solid" id="addl2">Add entry</button>`;
   }
 
@@ -854,18 +1125,22 @@ function renderPanel(){
       is enabled automatically on every port. VMEMB_PORT is who may receive; VLAN_BC
       restricts the broadcast domain; TAG_PORT decides tagged or untagged egress.</p>`;
     M.vlan.forEach((v,i)=>{
-      h+=`<h4>VLAN ${i} <button class="x" data-delv="${i}">×</button></h4>
+      h+=`<h4>VLAN ${i} <button class="x dup" data-dupv="${i}" title="Duplicate">⧉</button><button class="x" data-delv="${i}" title="Remove">×</button></h4>
       <div class="row r4"><div><label>VLANID</label>
         <input type="text" data-v="${i}" data-k="vid" value="${v.vid}"></div><div></div><div></div><div></div></div>
       <table class="ports"><thead><tr><th>VMEMB_PORT</th><th>VLAN_BC</th><th>TAG_PORT</th>
       </tr></thead><tbody><tr>
-      <td><div class="pmask">${v.memb.map((d,p)=>`<label>${p}<input type="checkbox"
-        data-v="${i}" data-k="memb" data-b="${p}" ${d?'checked':''}></label>`).join('')}</div></td>
-      <td><div class="pmask">${v.bc.map((d,p)=>`<label>${p}<input type="checkbox"
-        data-v="${i}" data-k="bc" data-b="${p}" ${d?'checked':''}></label>`).join('')}</div></td>
-      <td><div class="pmask">${v.tag.map((d,p)=>`<label>${p}<input type="checkbox"
-        data-v="${i}" data-k="tag" data-b="${p}" ${d?'checked':''}></label>`).join('')}</div></td>
+      <td><div class="pmask">${v.memb.map((d,p)=>`<label title="${M.board[p].name}">${p}<input
+        type="checkbox" data-v="${i}" data-k="memb" data-b="${p}" ${d?'checked':''}>
+        <span class="ptag">${M.board[p].tag}</span></label>`).join('')}</div></td>
+      <td><div class="pmask">${v.bc.map((d,p)=>`<label title="${M.board[p].name}">${p}<input
+        type="checkbox" data-v="${i}" data-k="bc" data-b="${p}" ${d?'checked':''}>
+        <span class="ptag">${M.board[p].tag}</span></label>`).join('')}</div></td>
+      <td><div class="pmask">${v.tag.map((d,p)=>`<label title="${M.board[p].name}">${p}<input
+        type="checkbox" data-v="${i}" data-k="tag" data-b="${p}" ${d?'checked':''}>
+        <span class="ptag">${M.board[p].tag}</span></label>`).join('')}</div></td>
       </tr></tbody></table>`;});
+    if(M.vlan.length===0) h+=`<div class="empty">No entries. VLAN 0 is enabled automatically when this block is absent.</div>`;
     h+=`<button class="act solid" id="addv">Add VLAN</button>`;
   }
 
@@ -882,11 +1157,14 @@ document.getElementById('panel').addEventListener('input',e=>{
     else p[k]=(t.tagName==='SELECT')?+v:v;
   }
   else if(t.dataset.gen!==undefined){
-    const k=t.dataset.gen; M.gen[k]=(t.tagName==='SELECT')?+t.value:v;}
+    const k=t.dataset.gen; M.gen[k]=(t.tagName==='SELECT')?+t.value:v;
+    if(k==='vllupformat'){ build(); renderPanel(); return; } }
   else if(t.dataset.pol!==undefined) M.pol[t.dataset.pol]=v;
   else if(t.dataset.lkp!==undefined) M.lkp[t.dataset.lkp]=v;
   else if(t.dataset.lkpa!==undefined) M.lkp.maxaddr[+t.dataset.lkpa]=v;
   else if(t.dataset.lkpv!==undefined) M.lkp[t.dataset.lkpv][+t.dataset.b]=v;
+  else if(t.dataset.brd!==undefined){
+    M.board[+t.dataset.brd][t.dataset.k]=t.value; renderPanel(); build(); return; }
   else if(t.dataset.avb!==undefined) M.avb[t.dataset.avb]=v;
   else if(t.dataset.raw!==undefined) M.raw[t.dataset.raw][+t.dataset.w]=t.value;
   else if(t.dataset.schedp!==undefined) M.schedp.sub[+t.dataset.schedp]=v;
@@ -914,6 +1192,8 @@ document.getElementById('panel').addEventListener('input',e=>{
   build();
 });
 document.getElementById('panel').addEventListener('click',e=>{
+  const go=e.target.closest('button[data-goto]');
+  if(go){ cur=go.dataset.goto; renderList(); renderPanel(); return; }
   if(e.target.id==='addl2'){M.l2.push({mac:'00:00:00:00:00:00',vlan:'000',iotag:0,
     dest:[0,0,0,0,0],enf:0,index:M.l2.length,mmac:'FFFFFFFFFFFF',mvlan:'FFF',
     miotag:1,mirr:0,retag:0,takets:0,tsreg:0,mirrvlan:'000'});renderPanel();build();}
@@ -923,7 +1203,8 @@ document.getElementById('panel').addEventListener('click',e=>{
   if(ad){ const proto={
       sched:{winstindex:0,winend:0,winst:0,dest:[0,0,0,0,0],setvalid:0,txen:0,resmedia:0,vlindex:0,delta:0},
       schedep:{subschindx:0,delta:0,address:0},
-      vllkp:{dest:[0,0,0,0,0],iscritical:0,mac:'00:00:00:00:00:00',vlanid:'000',port:0,vlanprior:0},
+      vllkp:{dest:[0,0,0,0,0],iscritical:0,mac:'00:00:00:00:00:00',vlanid:'000',
+             port:0,vlanprior:0,vlid:'0000',egrmirr:[0,0,0,0,0],ingrmirr:0},
       vlpol:{ttrc:0,maxlen:1518,sharindx:0,bag:0,jitter:0},
       vlfwd:{type:0,priority:0,partition:0,dest:[0,0,0,0,0]},
       retag:{egr:[0,0,0,0,0],ing:[0,0,0,0,0],vin:'000',veg:'000',nolearn:0,usedest:0,dest:[0,0,0,0,0]},
@@ -931,9 +1212,27 @@ document.getElementById('panel').addEventListener('click',e=>{
     M[ad].push(JSON.parse(JSON.stringify(proto))); renderPanel(); build(); return; }
   const dl=e.target.dataset.del;
   if(dl){ const [k,i]=dl.split(':');
-    if(M[k].length>1){ M[k].splice(+i,1); renderPanel(); build(); } return; }
-  const d=e.target.dataset.dell2; if(d!==undefined&&M.l2.length>1){M.l2.splice(+d,1);renderPanel();build();}
-  const dv=e.target.dataset.delv; if(dv!==undefined&&M.vlan.length>1){M.vlan.splice(+dv,1);renderPanel();build();}
+    M[k].splice(+i,1);
+    if(M[k].length===0 && !META[cur].req){ M.on[cur]=false; renderList(); }
+    renderPanel(); build(); return; }
+  const dup=e.target.dataset.dup;
+  if(dup){ const [k,i]=dup.split(':');
+    M[k].splice(+i+1,0,JSON.parse(JSON.stringify(M[k][+i])));
+    renderPanel(); build(); return; }
+  const d=e.target.dataset.dell2;
+  if(d!==undefined){ M.l2.splice(+d,1);
+    if(M.l2.length===0){ M.on['05']=false; renderList(); }
+    renderPanel(); build(); return; }
+  const dupl2=e.target.dataset.dupl2;
+  if(dupl2!==undefined){ M.l2.splice(+dupl2+1,0,JSON.parse(JSON.stringify(M.l2[+dupl2])));
+    renderPanel(); build(); return; }
+  const dv=e.target.dataset.delv;
+  if(dv!==undefined){ M.vlan.splice(+dv,1);
+    if(M.vlan.length===0){ M.on['07']=false; renderList(); }
+    renderPanel(); build(); return; }
+  const dupv=e.target.dataset.dupv;
+  if(dupv!==undefined){ M.vlan.splice(+dupv+1,0,JSON.parse(JSON.stringify(M.vlan[+dupv])));
+    renderPanel(); build(); return; }
 });
 
 function updatePartSum(){
@@ -958,6 +1257,7 @@ function build(){
   for(const id of ORDER){
     if(!M.on[id]) continue;
     let data; try{ data=ENC[id](); }catch(err){ continue; }
+    if(data.length===0) continue;
     const hdr=[parseInt(id,16)<<24, data.length];
     const hc=crc32(hdr), dc=crc32(data);
     s+=C(`/* ---- block ${id}h : ${META[id].n} ---- */`)+'\n';
@@ -993,14 +1293,44 @@ function build(){
   const w=[];
   for(let i=0;i<NP;i++){const p=M.ports[i];
     if(p.reach[i]||p.bc[i]||p.fl[i])
-      w.push(`Port ${i} appears in its own forwarding vector — frames can be echoed back.`);}
+      w.push(`Port ${i} (${M.board[i].tag}) appears in its own forwarding vector — `+
+             `frames can be echoed back toward ${M.board[i].name}.`);}
   if(M.gen.mirr!==7) w.push('MIRR_PORT is set. Mirroring overrules VLAN and reachability limits.');
   if(M.fwdp.part.reduce((a,b)=>a+(parseInt(b,10)||0),0)>4096)
     w.push('PART_SPC exceeds the 4096 available memory blocks.');
   const sg=M.ports.findIndex((p,i)=>p.xmii===3&&i!==4);
   if(sg>=0) w.push(`Port ${sg} is set to SGMII, which only exists on port 4 — it will be tri-stated.`);
-  if(M.ports[4].xmii===3)
-    w.push('Port 4 SGMII also needs block C8h and the 0x180000 register region, which this tool does not emit.');
+  if(M.on['02']&&M.vllkp.length>1){
+    const f1=!!M.gen.vllupformat;
+    const key=e=>f1
+      ? [Number(hx(e.vlid,0xFFFFn)??0n), Number(e.port)]
+      : [Number(mac(e.mac)??0n), Number(hx(e.vlanid,0xFFFn)??0n),
+         Number(e.port), Number(e.vlanprior)];
+    let sorted=true;
+    for(let i=1;i<M.vllkp.length;i++){
+      const a=key(M.vllkp[i-1]), b=key(M.vllkp[i]);
+      for(let j=0;j<a.length;j++){
+        if(a[j]<b[j]) break;
+        if(a[j]>b[j]){ sorted=false; break; }
+      }
+      if(!sorted) break;
+    }
+    if(!sorted) w.push('Block 02h entries must be sorted ascending by '+
+      (f1?'VLID then PORT':'MACADDR, VLANID, PORT, VLANPRIOR')+
+      ' — the lookup depends on it.');
+  }
+  if(M.ports[4].xmii===3 && !M.on['C8'])
+    w.push(`Port 4 (${M.board[4].tag}) is SGMII but block C8h is not enabled — `+
+           `the SerDes will not come up. It also needs the 0x180000 register region.`);
+  M.board.forEach((b,i)=>{
+    const modeName=['MII','RMII','RGMII','SGMII/off'][M.ports[i].xmii];
+    if(b.iface!=='off' && b.iface.toUpperCase()!==modeName &&
+       !(b.iface.toUpperCase()==='SGMII'&&M.ports[i].xmii===3))
+      w.push(`Board map says port ${i} (${b.tag}) is ${b.iface}, but block 4Eh has it `+
+             `set to ${modeName}.`);
+    if(b.iface==='off' && (M.ports[i].ingress||M.ports[i].egress))
+      w.push(`Port ${i} is marked unused in the board map but is enabled in block 09h.`);
+  });
   document.getElementById('checks').innerHTML =
     w.map(x=>`<div class="warn">${x}</div>`).join('');
 }
