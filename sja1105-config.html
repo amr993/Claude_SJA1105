@@ -98,6 +98,15 @@ button.x.dup:hover{color:var(--ok)}
 .outbox{background:var(--out-bg);border-radius:3px;padding:14px 16px}
 .outbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .outbar span{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--out-cmt)}
+.outopts{display:flex;align-items:center;gap:6px;margin-bottom:10px;
+  font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--out-cmt)}
+.outopts label{color:var(--out-cmt);font-size:11px;margin:0}
+.outopts input{width:52px;padding:2px 5px;font-size:11px;background:#25353f;
+  color:#cfe0e4;border:1px solid #35474f;border-radius:2px;
+  font-family:'IBM Plex Mono',monospace}
+.outopts select{padding:2px 4px;font-size:11px;background:#25353f;color:#cfe0e4;
+  border:1px solid #35474f;border-radius:2px;font-family:'IBM Plex Mono',monospace;
+  width:auto}
 .outbox pre{font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.6;
   color:var(--out-ink);margin:0;white-space:pre;overflow:auto;max-height:66vh}
 .outbox .c{color:var(--out-cmt)}.outbox .h{color:var(--out-hex)}
@@ -139,7 +148,21 @@ footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--rule);
     <div class="outbox">
       <div class="outbar">
         <span id="stat"></span>
-        <button class="copy" id="copy">Copy</button>
+        <span style="display:flex;gap:6px">
+          <button class="copy" id="allon">All blocks</button>
+          <button class="copy" id="dl">Download .h</button>
+          <button class="copy" id="copy">Copy</button>
+        </span>
+      </div>
+      <div class="outopts">
+        <label for="o_chunk">chunk</label>
+        <input type="text" id="o_chunk" value="0" title="Words per chunk. 0 emits one array.">
+        <span>words</span>
+        <label for="o_fmt" style="margin-left:10px">as</label>
+        <select id="o_fmt">
+          <option value="bytes">uint8 bytes</option>
+          <option value="words">uint32 words</option>
+        </select>
       </div>
       <pre id="code"></pre>
     </div>
@@ -187,66 +210,146 @@ const pv=a=>BigInt(a.reduce((x,d,p)=>x|(d?1<<p:0),0));
 const NP=5;
 
 /* ================= model ================= */
-function defPort(i){return{
-  xmii:i===4?2:1, role:i===4?1:0, speed:0,
-  vlanid:'000', vlanprio:0, ifg:0, maxage:255,
-  ingress:1, egress:1, learn:1,
-  drpuntag:0, drpdtag:0, drpsotag:0, drpsitag:0, retag:0,
-  ingmirr:0, egrmirr:0,
-  bc:[1,1,1,1,1].map((_,p)=>p===i?0:1),
-  reach:[1,1,1,1,1].map((_,p)=>p===i?0:1),
-  fl:[1,1,1,1,1].map((_,p)=>p===i?0:1)
-}}
+function defPort(i){
+  /* Worked example for the reference board:
+       port 0 Traveo (AC)    RGMII, switch acts as PHY, fixed 1000
+       port 1 88Q2110 (PHY0) RGMII, switch acts as MAC, speed set by host
+       port 2,3 unused       tri-stated and disabled
+       port 4 8255P (SoC)    SGMII, switch acts as MAC, fixed 1000          */
+  const ACTIVE=[0,1,4], on=ACTIVE.includes(i);
+  const reach=[0,1,2,3,4].map(p=>(on && ACTIVE.includes(p) && p!==i)?1:0);
+  const XMII={0:2,1:2,2:3,3:3,4:3}[i];      /* 2 = RGMII, 3 = SGMII / off */
+  const ROLE={0:1,1:0,2:0,3:0,4:0}[i];      /* 1 = PHY role, 0 = MAC role */
+  const SPEED={0:1,1:0,2:0,3:0,4:1}[i];     /* 0 = dynamic, 1 = 1000 Mbit  */
+  return{
+    xmii:XMII, role:ROLE, speed:SPEED,
+    vlanid:'000', vlanprio:0, ifg:0, maxage:255,
+    ingress:on?1:0, egress:on?1:0, learn:on?1:0,
+    drpuntag:0, drpdtag:0, drpsotag:0, drpsitag:0, retag:0,
+    ingmirr:0, egrmirr:0,
+    bc:reach.slice(), reach:reach.slice(), fl:reach.slice()
+  };
+}
+
+/* Raw register-mirror blocks. Index positions follow RAWNAMES.
+   These are ILLUSTRATIVE starting points, not verified production values —
+   take the real ones from the CGU, ACU and SGMII register descriptions. */
+function rawCGU(){
+  const a=new Array(44).fill('00000000');
+  a[3]=a[4]=a[5]=a[6]=a[7]='0A000000';   /* IDIV_0_C .. IDIV_4_C          */
+  a[14]='11000800';                      /* MII0_RGMII_TX_CLK_C           */
+  a[20]='12000800';                      /* MII1_RGMII_TX_CLK_C           */
+  a[38]='13000800';                      /* MII4_RGMII_TX_CLK_C           */
+  return a;
+}
+function rawACU(){
+  const a=new Array(21).fill('00000000');
+  a[0]='12121212';  a[2]='12121212';     /* CFG_PAD_MII0_TX, MII1_TX      */
+  a[8]='12121212';                       /* CFG_PAD_MII4_TX               */
+  return a;
+}
+function rawSGMII(){
+  const a=new Array(36).fill('00000000');
+  a[30]='00001140';                      /* BASIC_CONTROL — 1000, full dx */
+  a[29]='00000020';                      /* AUTONEG_ADV                   */
+  return a;
+}
+
+/* What each switch port physically connects to on the reference board. */
 const DEFBOARD=()=>[
- {tag:'AC',   name:'Traveo IC1700',      iface:'RGMII'},
- {tag:'PHY0', name:'MV88Q2110 IC2002',   iface:'RGMII'},
- {tag:'—',    name:'unused',             iface:'off'},
- {tag:'—',    name:'unused',             iface:'off'},
- {tag:'SoC',  name:'QAM8255P IC2100',    iface:'SGMII'}
+ {tag:'AC',   name:'Traveo IC1700',    iface:'RGMII'},
+ {tag:'PHY0', name:'MV88Q2110 IC2002', iface:'RGMII'},
+ {tag:'—',    name:'unused',           iface:'off'},
+ {tag:'—',    name:'unused',           iface:'off'},
+ {tag:'SoC',  name:'QAM8255P IC2100',  iface:'SGMII'}
 ];
 function defModel(){return{
   board:DEFBOARD(),
   ports:[0,1,2,3,4].map(defPort),
-  gen:{vllupformat:0,host:4,casc:7,mirr:7,swid:0,hostprio:0,
+
+  /* 11h — Traveo is the host port; mirroring off */
+  gen:{vllupformat:0,host:0,casc:7,mirr:7,swid:0,hostprio:0,
     send0:0,send1:0,src0:0,src1:0,tpid:'8100',tpid2:'8100',mirrptacu:0,
     fltres0:'000000000000',fltres1:'000000000000',
     flt0:'000000000000',flt1:'000000000000'},
+
+  /* 0Eh — 8 x 400 of the 4096 available frame-memory blocks */
   fwdp:{maxdynp:0,part:[400,400,400,400,400,400,400,400]},
-  pol:{smax:65535,rate:65535,maxlen:1518,partition:0},
-  l2:[{mac:'00:10:94:00:00:99',vlan:'000',iotag:0,dest:[1,0,0,0,0],enf:0,
-       index:0,mmac:'FFFFFFFFFFFF',mvlan:'FFF',miotag:1,
-       mirr:0,retag:0,takets:0,tsreg:0,mirrvlan:'000'}],
-  vlan:[{vid:'000',memb:[1,1,1,1,1],bc:[1,1,1,1,1],tag:[1,1,1,1,1],
-         ing:[0,0,0,0,0],egr:[0,0,0,0,0]}],
-  lkp:{maxage:1000,startdyn:0,shared:0,noenf:0,nomgmt:0,usestatic:0,
-    owrdyn:1,learnonce:0,
-    maxaddr:[1024,1024,1024,1024,1024],
-    drpnolearn:[0,0,0,0,0],drpbc:[0,0,0,0,0],drpmc:[0,0,0,0,0],drpuni:[0,0,0,0,0]},
+
+  /* 06h — wide open, 1522 allows a VLAN tag */
+  pol:{smax:65535,rate:65535,maxlen:1522,partition:0},
+
+  /* 05h — the three patterns: forward, bind, blacklist */
+  l2:[
+   {mac:'00:10:94:00:00:99',vlan:'000',iotag:0,dest:[1,0,0,0,0],enf:0,index:0,
+    mmac:'FFFFFFFFFFFF',mvlan:'FFF',miotag:1,mirr:0,retag:0,takets:0,tsreg:0,mirrvlan:'000'},
+   {mac:'AA:BB:CC:00:00:01',vlan:'000',iotag:0,dest:[0,1,0,0,0],enf:1,index:1,
+    mmac:'FFFFFFFFFFFF',mvlan:'FFF',miotag:1,mirr:0,retag:0,takets:0,tsreg:0,mirrvlan:'000'},
+   {mac:'00:11:22:33:44:55',vlan:'000',iotag:0,dest:[0,0,0,0,0],enf:1,index:2,
+    mmac:'FFFFFFFFFFFF',mvlan:'FFF',miotag:1,mirr:0,retag:0,takets:0,tsreg:0,mirrvlan:'000'}],
+
+  /* 07h — VLAN 0 everywhere, VLAN 100 for the critical stream */
+  vlan:[
+   {vid:'000',memb:[1,1,0,0,1],bc:[1,1,0,0,1],tag:[0,0,0,0,0],ing:[0,0,0,0,0],egr:[0,0,0,0,0]},
+   {vid:'064',memb:[1,1,0,0,1],bc:[1,1,0,0,1],tag:[1,1,0,0,1],ing:[0,0,0,0,0],egr:[0,0,0,0,0]}],
+
+  /* 0Dh — learning limited, unused ports learn nothing */
+  lkp:{maxage:1000,startdyn:16,shared:0,noenf:0,nomgmt:0,usestatic:1,
+    owrdyn:1,learnonce:1,
+    maxaddr:[256,256,0,0,256],
+    drpnolearn:[0,0,1,1,0],drpbc:[0,0,0,0,0],drpmc:[0,0,0,0,0],drpuni:[0,0,0,0,0]},
+
+  /* 10h — meta frames toward the host port */
   avb:{srcmeta:'026037C0FFEE',destmeta:'026037DEADCB',casmaster:0,l2cbs:0},
-  sched:[{winstindex:0,winend:0,winst:0,dest:[0,0,0,0,0],setvalid:0,txen:0,
-          resmedia:0,vlindex:0,delta:0}],
+
+  /* 00h — a 1 ms cycle: block best effort, send the TT frame, release */
+  sched:[
+   {winstindex:0,winend:0,winst:0,dest:[0,1,0,0,1],setvalid:0,txen:0,
+    resmedia:263,vlindex:0,delta:100},
+   {winstindex:0,winend:0,winst:0,dest:[0,1,0,0,1],setvalid:1,txen:1,
+    resmedia:0,vlindex:0,delta:50},
+   {winstindex:0,winend:0,winst:0,dest:[0,1,0,0,1],setvalid:0,txen:0,
+    resmedia:256,vlindex:0,delta:4850}],
+
+  /* 01h — one entry point for the single subschedule */
   schedep:[{subschindx:0,delta:0,address:0}],
-  vllkp:[{dest:[0,0,0,0,0],iscritical:0,mac:'00:00:00:00:00:00',
-          vlanid:'000',port:0,vlanprior:0,
-          vlid:'0000',egrmirr:[0,0,0,0,0],ingrmirr:0}],
-  vlpol:[{ttrc:0,maxlen:1518,sharindx:0,bag:0,jitter:0}],
-  vlfwd:[{type:0,priority:0,partition:0,dest:[0,0,0,0,0]}],
-  schedp:{sub:[0,0,0,0,0,0,0,0]},
-  schedepp:{clksrc:0,actsubsch:0},
-  vlfwdp:{part:[0,0,0,0,0,0,0,0],debugen:0},
-  retag:[{egr:[0,0,0,0,0],ing:[0,0,0,0,0],vin:'000',veg:'000',
-          nolearn:0,usedest:0,dest:[0,0,0,0,0]}],
-  cbs:[{port:0,prio:0,creditlo:0,credithi:0,sendslope:0,idleslope:0}],
-  raw:{'80':new Array(44).fill('00000000'),
-       '81':['00000000'],
-       '82':new Array(21).fill('00000000'),
-       'C8':new Array(36).fill('00000000')},
+
+  /* 0Ah — subschedule 0 ends at entry 2 */
+  schedp:{sub:[2,2,2,2,2,2,2,2]},
+
+  /* 0Bh — driven by the PTP clock, one active subschedule */
+  schedepp:{clksrc:1,actsubsch:0},
+
+  /* 02h — a critical stream from the SoC on VLAN 100 */
+  vllkp:[{dest:[0,0,0,0,0],iscritical:1,mac:'03:00:00:00:00:01',
+          vlanid:'064',port:4,vlanprior:6,
+          vlid:'0001',egrmirr:[0,0,0,0,0],ingrmirr:0}],
+
+  /* 03h — rate constrained: one frame per millisecond */
+  vlpol:[{ttrc:0,maxlen:1522,sharindx:0,bag:10,jitter:5}],
+
+  /* 04h — out to the Traveo and PHY0 at priority 6 */
+  vlfwd:[{type:0,priority:6,partition:1,dest:[1,1,0,0,0]}],
+
+  /* 0Ch — memory reserved for critical traffic */
+  vlfwdp:{part:[0,100,0,0,0,0,0,0],debugen:0},
+
+  /* 12h — VLAN 100 from the SoC becomes VLAN 200 toward the Traveo */
+  retag:[{egr:[1,0,0,0,0],ing:[0,0,0,0,1],vin:'064',veg:'0C8',
+          nolearn:0,usedest:0,dest:[1,0,0,0,0]}],
+
+  /* 13h — shaper on PHY0 priority 6, roughly 10 Mbit/s */
+  cbs:[{port:1,prio:6,creditlo:4294966296,credithi:1000,
+        sendslope:123750000,idleslope:1250000}],
+
+  raw:{'80':rawCGU(),'81':['00000000'],'82':rawACU(),'C8':rawSGMII()},
+
   on:{'00':false,'01':false,'02':false,'03':false,'04':false,'05':false,'06':true,
       '07':false,'08':true,'09':true,'0A':false,'0B':false,'0C':false,'0D':false,
       '0E':true,'10':false,'11':true,'12':false,'13':false,'4E':true,
       '80':false,'81':false,'82':false,'C8':false},
-  clk:10, spiHdr:true
-}}
+  clk:10, spiHdr:true, chunk:0, fmt:'bytes'
+};}
 let M=defModel();
 
 /* ================= block encoders ================= */
@@ -824,6 +927,8 @@ function renderPanel(){
     h+=`<p class="desc">This block mirrors ${n} device register${n>1?'s':''} straight
       into the configuration stream. The manual defines each one under its own register
       description, not as a bit field here, so enter raw 32-bit values.
+      The values loaded here are <strong>illustrative starting points, not verified
+      production values</strong> — take the real ones from the register descriptions.
       ${cur==='C8'?'<strong>Port 4 SGMII needs this block.</strong> Values must come from the SGMII register descriptions or a vendor tool — leaving them zero will not bring the SerDes up.':''}</p>
       <table class="ports"><thead><tr><th>#</th><th>register</th><th>value</th>
       <th>#</th><th>register</th><th>value</th></tr></thead><tbody>`;
@@ -836,6 +941,13 @@ function renderPanel(){
         : '<td></td><td></td><td></td>';
       h+=`<tr>${cell(i)}${cell(j)}</tr>`;}
     h+='</tbody></table>';
+    if(cur==='81') h+=`<div class="warn" style="margin-top:10px">UNIT_DISABLE at zero
+      means no functional unit is disabled, which is what you want. This block
+      legitimately encodes to <span class="mono">0x00000000</span>.</div>`;
+    if(cur==='C8') h+=`<div class="err" style="margin-top:10px">The two non-zero values
+      below are placeholders showing the shape only. BASIC_CONTROL is a conventional MII
+      control word and AUTONEG_ADV a nominal advertisement — neither is taken from the
+      SGMII register descriptions. Replace them before use.</div>`;
   }
 
   if(cur==='00'){
@@ -867,6 +979,10 @@ function renderPanel(){
       <div><label>SUBSCHINDX</label>${txt('schedep',i,'subschindx',e.subschindx)}</div>
       <div><label>DELTA — ×200 ns</label>${txt('schedep',i,'delta',e.delta)}</div>
       <div><label>ADDRESS</label>${txt('schedep',i,'address',e.address)}</div></div>`;});
+    h+=`<div class="warn" style="margin-top:10px">All three fields at zero is a valid
+      configuration — subschedule 0, starting at the beginning of the cycle, from
+      Schedule entry 0. This block therefore encodes to <span class="mono">0x00000000</span>
+      in the example, which is correct rather than unset.</div>`;
     if(M.schedep.length===0) h+=`<div class="empty">No entries.</div>`;
     h+=`<button class="act solid" data-add="schedep">Add entry point</button>`;
   }
@@ -1246,45 +1362,185 @@ function updatePartSum(){
 const be=w=>[24,16,8,0].map(s=>'0x'+(((w>>>s)&0xFF).toString(16).toUpperCase()
   .padStart(2,'0'))).join(', ');
 
-function build(){
-  const C=t=>`<span class="c">${t}</span>`, H=t=>`<span class="h">${t}</span>`;
-  let s='', all=[0xAE00030E];
-  s+=C('/* SJA1105SEL static configuration — generic loader format */')+'\n';
-  if(M.spiHdr)
-    s+=`${H(be(0x80200000))},   ${C('/* SPI write to 0x020000     */')}\n`;
-  s+=`${H(be(0xAE00030E))},   ${C('/* device ID SJA1105Q/S      */')}\n\n`;
+/* Build the word stream once, then render it as one array or as chunks. */
+function buildStream(){
+  const rows=[], all=[];
+  const push=(w,c)=>{ rows.push({w:w>>>0,c:c||''}); all.push(w>>>0); };
 
+  push(0xAE00030E,'device ID SJA1105Q/S');
   for(const id of ORDER){
     if(!M.on[id]) continue;
-    let data; try{ data=ENC[id](); }catch(err){ continue; }
-    if(data.length===0) continue;
-    const hdr=[parseInt(id,16)<<24, data.length];
-    const hc=crc32(hdr), dc=crc32(data);
-    s+=C(`/* ---- block ${id}h : ${META[id].n} ---- */`)+'\n';
-    s+=`${H(be(hdr[0]))},   ${C(`/* block id ${id}h`.padEnd(27)+'*/')}\n`;
-    s+=`${H(be(hdr[1]))},   ${C(`/* ${data.length} words`.padEnd(27)+'*/')}\n`;
-    s+=`${H(be(hc))},   ${C('/* header CRC-32             */')}\n`;
-    data.forEach(w=>{ s+=`${H(be(w))},\n`; });
-    s+=`${H(be(dc))},   ${C('/* data CRC-32               */')}\n\n`;
-    all.push(...hdr,hc,...data,dc);
+    let rws; try{ rws=blockRows(id); }catch(err){ continue; }
+    if(rws.length<=4) continue;            /* header + CRCs only = empty block */
+    rws.forEach(r=>push(r.w, r.c));
+  }
+  push(0,'delimiter word 0');
+  push(0,'delimiter — BlockLength 0 marks the end');
+  const gc=crc32(all);
+  rows.push({w:gc>>>0,c:'global CRC-32'});
+  return {rows, gc, words:rows.length};
+}
+
+/* Human label for entry n of each block, used to annotate every data word. */
+const ENTLABEL={
+ '00':i=>`event ${i}`,
+ '01':i=>`entry point ${i}`,
+ '02':i=>`VL ${i}`,
+ '03':i=>`VL ${i}`,
+ '04':i=>`VL ${i}`,
+ '05':i=>`entry ${i}`,
+ '06':i=>i<40?`port ${Math.floor(i/8)} prio ${i%8}`:`port ${i-40} broadcast`,
+ '07':i=>`VLAN ${i}`,
+ '08':i=>i<5?`ingress port ${i}`:`egress prio ${i-5}`,
+ '09':i=>`port ${i}`,
+ '0A':()=>'', '0B':()=>'', '0C':()=>'', '0D':()=>'', '0E':()=>'', '10':()=>'',
+ '11':()=>'',
+ '12':i=>`rule ${i}`,
+ '13':i=>`shaper ${i}`,
+ '4E':()=>''
+};
+
+/* Word-by-word rows for one block: header, data, CRCs — each with a comment. */
+function blockRows(id){
+  const data=ENC[id]();
+  const hdr=[parseInt(id,16)<<24, data.length];
+  const nm=META[id].n;
+  const out=[];
+  out.push({w:hdr[0], c:`block ${id}h ${nm} — block ID`});
+  out.push({w:hdr[1], c:`block ${id}h — ${data.length} words`});
+  out.push({w:crc32(hdr), c:`block ${id}h — header CRC-32`});
+  if(META[id].raw){
+    const names=RAWNAMES[id]||[];
+    data.forEach((w,k)=>out.push({w, c:`${id}h ${names[k]||'reserved'}`}));
+  }else{
+    const wpe=META[id].w, lab=ENTLABEL[id];
+    data.forEach((w,k)=>{
+      const e=Math.floor(k/wpe), j=k%wpe;
+      const bits=`bits ${String(j*32+31).padStart(3)}:${String(j*32).padStart(3)}`;
+      const l=lab?lab(e):'';
+      out.push({w, c:`${id}h ${l?l+', ':''}${bits}`});
+    });
+  }
+  out.push({w:crc32(data), c:`block ${id}h — data CRC-32`});
+  return out;
+}
+
+const arrName=addr=>'EthSwt_StaticCfg_'+
+  addr.toString(16).toUpperCase().padStart(6,'0');
+
+/* Produce EthernetSwitch_Cfg.h: plain annotated arrays, nothing else. */
+function headerFile(){
+  const {rows, gc, words}=buildStream();
+  const asWords = M.fmt==='words';
+  const CH = Math.max(0, parseInt(M.chunk,10)||0);
+  const per = CH===0 ? words : CH;
+  const nchunks = Math.ceil(words/per);
+  const ty = asWords?'uint32':'uint8';
+  const val = w => asWords
+    ? '0x'+w.toString(16).toUpperCase().padStart(8,'0')+'uL'
+    : [24,16,8,0].map(sh=>'0x'+(((w>>>sh)&0xFF).toString(16).toUpperCase()
+        .padStart(2,'0'))+'u').join(', ');
+  const PADV = asWords ? 13 : 26;
+
+  const on=ORDER.filter(b=>M.on[b]);
+  let o='';
+  o+='/**\n';
+  o+=' * @file    EthernetSwitch_Cfg.h\n';
+  o+=' * @brief   SJA1105SEL static configuration, generic loader format.\n';
+  o+=' *\n';
+  o+=' * GENERATED FILE — edit the configuration, not this output.\n';
+  o+=' *\n';
+  o+=` * Device ID   0xAE00030E (SJA1105Q/S)\n`;
+  o+=` * Stream      ${words} double words, ${words*4} bytes\n`;
+  o+=` * Global CRC  0x${gc.toString(16).toUpperCase().padStart(8,'0')}\n`;
+  o+=` * Blocks      ${on.map(b=>b+'h').join(', ')}\n`;
+  o+=' *\n';
+  o+=' * Board mapping assumed by this configuration:\n';
+  M.board.forEach((b,i)=>{o+=` *   port ${i}  ${b.tag.padEnd(6)} ${b.name} (${b.iface})\n`;});
+  o+=' *\n';
+  o+=' * UM11040 4.2: only the first write must target 0x020000. The switch\n';
+  o+=' * advances its own download pointer, so later chunks may use any address\n';
+  o+=' * in 0x020001..0x02FFFF. The addresses below are explicit so a chunk is\n';
+  o+=' * self-describing.\n';
+  if(M.spiHdr)
+    o+=' *\n * Element 0 of each array is the SPI control word for that chunk.\n';
+  o+=' */\n\n';
+  o+='#ifndef ETHERNETSWITCH_CFG_H\n#define ETHERNETSWITCH_CFG_H\n\n';
+
+  for(let n=0;n<nchunks;n++){
+    const slice=rows.slice(n*per,(n+1)*per);
+    const addr=0x020000+n*per;
+    const ah='0x'+addr.toString(16).toUpperCase().padStart(6,'0');
+    const items=[];
+    if(M.spiHdr) items.push({w:ctrlWord(addr), c:`SPI write to ${ah}`});
+    slice.forEach(r=>items.push(r));
+
+    o+=`/* chunk ${n}: ${slice.length} configuration words to ${ah} */\n`;
+    o+=`${ty} ${arrName(addr)}[] =\n{\n`;
+    items.forEach(it=>{
+      o+='    '+(val(it.w)+',').padEnd(PADV)+
+         (it.c?`  /* ${it.c} */`:'')+'\n';
+    });
+    o+='};\n\n';
   }
 
-  all.push(0,0);
-  const gc=crc32(all);
-  s+=C('/* ---- delimiter and global CRC ---- */')+'\n';
-  s+=`${H(be(0))},\n${H(be(0))},   ${C('/* BlockLength 0 = end       */')}\n`;
-  s+=`${H(be(gc))},   ${C('/* global CRC-32             */')}\n`;
-  all.push(gc);
+  o+='#endif /* ETHERNETSWITCH_CFG_H */\n';
+  return o;
+}
+
+/* SPI control word for a write to a static-config address. UM11040 3.1. */
+const ctrlWord=addr=>((0x80000000 | ((addr & 0x1FFFFF)<<4))>>>0);
+
+function build(){
+  const C=t=>`<span class="c">${t}</span>`, H=t=>`<span class="h">${t}</span>`;
+  const {rows, gc, words}=buildStream();
+
+  const asWords = M.fmt==='words';
+  const F = w => asWords
+    ? '0x'+w.toString(16).toUpperCase().padStart(8,'0')
+    : be(w);
+  const line = (w,c) => `${H(F(w))},${c?`   ${C(`/* ${c} */`)}`:''}\n`;
+
+  const CH = Math.max(0, parseInt(M.chunk,10)||0);
+  let s='', nchunks=1;
+
+  if(CH===0){
+    s+=C('/* SJA1105SEL static configuration — generic loader format */')+'\n';
+    s+=C(`static const ${asWords?'uint32':'uint8'} ${arrName(0x020000)}[] = {`)+'\n';
+    if(M.spiHdr) s+=line(ctrlWord(0x020000),'SPI write to 0x020000');
+    rows.forEach(r=>{ s+=line(r.w, r.c); });
+    s+=C('};')+'\n';
+  }else{
+    nchunks=Math.ceil(words/CH);
+    s+=C(`/* ${words} double words in ${nchunks} chunk${nchunks>1?'s':''} of `+
+         `up to ${CH}. Only the first write must target 0x020000 — the switch `+
+         `advances its own download pointer (UM11040 4.2). */`)+'\n\n';
+    for(let n=0;n<nchunks;n++){
+      const slice=rows.slice(n*CH,(n+1)*CH);
+      const addr=0x020000 + n*CH;
+      const ah='0x'+addr.toString(16).toUpperCase().padStart(6,'0');
+      s+=C(`/* chunk ${n} — ${slice.length} words to ${ah} */`)+'\n';
+      s+=C(`static const ${asWords?'uint32':'uint8'} ${arrName(addr)}[] = {`)+'\n';
+      if(M.spiHdr) s+=line(ctrlWord(addr), `SPI write to ${ah}`);
+      slice.forEach(r=>{ s+=line(r.w, r.c); });
+      s+=C('};')+'\n\n';
+    }
+    s+=C('/* usage: send each chunk in order, chip select held low per chunk */')+'\n';
+    s+=C(`/*   for (i = 0; i < ${nchunks}; i++)`)+'\n';
+    s+=C(`/*     EthSwt_Send(EthSwt_StaticCfg[i].data, EthSwt_StaticCfg[i].length); */`)+'\n';
+  }
 
   const code=document.getElementById('code');
   code.innerHTML=s; code.dataset.plain=s.replace(/<[^>]+>/g,'');
-  const tot=all.length+(M.spiHdr?1:0);
+
+  const tot=words+(M.spiHdr?nchunks:0);
   document.getElementById('stat').textContent=
-    `${tot} words · ${tot*4} bytes`;
+    `${tot} words · ${tot*4} bytes${CH?` · ${nchunks} chunks`:''}`;
 
   const ms=(tot*4*8)/(M.clk*1e6)*1000;
   document.getElementById('stats').innerHTML=
-    `<div><b>total</b><span class="v">${all.length} words / ${all.length*4} bytes</span></div>
+    `<div><b>stream</b><span class="v">${words} words / ${words*4} bytes</span></div>
+     <div><b>chunks</b><span class="v">${CH?`${nchunks} × up to ${CH} words`:'one array'}</span></div>
      <div><b>blocks included</b><span class="v">${ORDER.filter(i=>M.on[i]).length} of ${ORDER.length}</span></div>
      <div><b>global CRC</b><span class="v">0x${gc.toString(16).toUpperCase().padStart(8,'0')}</span></div>
      <div><b>upload at 10 MHz</b><span class="v">${ms.toFixed(2)} ms</span></div>`;
@@ -1295,6 +1551,10 @@ function build(){
     if(p.reach[i]||p.bc[i]||p.fl[i])
       w.push(`Port ${i} (${M.board[i].tag}) appears in its own forwarding vector — `+
              `frames can be echoed back toward ${M.board[i].name}.`);}
+  const chSz=parseInt(M.chunk,10)||0;
+  if(chSz>0 && chSz<4)
+    w.push('A chunk smaller than four words splits block headers across transactions. '+
+           'Legal, but awkward to follow — 16 or more is easier to read.');
   if(M.gen.mirr!==7) w.push('MIRR_PORT is set. Mirroring overrules VLAN and reachability limits.');
   if(M.fwdp.part.reduce((a,b)=>a+(parseInt(b,10)||0),0)>4096)
     w.push('PART_SPC exceeds the 4096 available memory blocks.');
@@ -1335,6 +1595,26 @@ function build(){
     w.map(x=>`<div class="warn">${x}</div>`).join('');
 }
 
+document.getElementById('dl').addEventListener('click',ev=>{
+  const blob=new Blob([headerFile()],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='EthernetSwitch_Cfg.h';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},0);
+  ev.target.textContent='Saved';
+  setTimeout(()=>ev.target.textContent='Download .h',1500);
+});
+document.getElementById('o_chunk').addEventListener('input',e=>{
+  M.chunk=e.target.value; build(); });
+document.getElementById('o_fmt').addEventListener('change',e=>{
+  M.fmt=e.target.value; build(); });
+document.getElementById('allon').addEventListener('click',ev=>{
+  const every = ORDER.every(b=>M.on[b]);
+  ORDER.forEach(b=>{ if(!META[b].req) M.on[b] = !every; });
+  ev.target.textContent = every ? 'All blocks' : 'Mandatory only';
+  renderList(); renderPanel(); build();
+});
 document.getElementById('copy').addEventListener('click',async ev=>{
   try{await navigator.clipboard.writeText(document.getElementById('code').dataset.plain||'');
     ev.target.textContent='Copied';setTimeout(()=>ev.target.textContent='Copy',1400);}
