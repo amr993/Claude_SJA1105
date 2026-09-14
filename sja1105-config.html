@@ -150,7 +150,9 @@ footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--rule);
         <span id="stat"></span>
         <span style="display:flex;gap:6px">
           <button class="copy" id="allon">All blocks</button>
-          <button class="copy" id="dl">Download .h</button>
+          <button class="copy" id="dl">Save configuration</button>
+          <button class="copy" id="ld">Load</button>
+          <input type="file" id="ldfile" accept=".h,.txt" hidden>
           <button class="copy" id="copy">Copy</button>
         </span>
       </div>
@@ -1381,6 +1383,94 @@ function buildStream(){
   return {rows, gc, words:rows.length};
 }
 
+
+/* Field maps used only to annotate the generated header. Bit positions mirror
+   the encoders above; values shown in the comments are unpacked from the words
+   that were actually produced, so a disagreement would be visible. */
+const FIELDS={
+ '00':[['WINSTINDEX',63,54],['WINEND',53,53],['WINST',52,52],['DESTPORTS',51,47],
+       ['SETVALID',46,46],['TXEN',45,45],['RESMEDIA',44,36],['VLINDEX',35,26],
+       ['DELTA',25,8]],
+ '01':[['SUBSCHINDX',31,29],['DELTA',28,11],['ADDRESS',10,1]],
+ '03':[['TTRC',63,63],['MAXLEN',62,52],['SHARINDX',51,42],['BAG',41,28],['JITTER',27,18]],
+ '04':[['TYPE',31,31],['PRIORITY',30,28],['PARTITION',27,25],['DESTPORTS',24,20]],
+ '05':[['TSREG',159,159],['MIRRVLAN',158,147],['TAKETS',146,146],['MIRR',145,145],
+       ['RETAG',144,144],['MASK_IOTAG',143,143],['MASK_VLANID',142,131],
+       ['MASK_MACADDR',130,83],['IOTAG',82,82],['VLANID',81,70],['MACADDR',69,22],
+       ['DESTPORTS',21,17],['ENFPORT',16,16],['INDEX',15,6]],
+ '06':[['SHARINDX',63,58],['SMAX',57,42],['RATE',41,26],['MAXLEN',25,15],
+       ['PARTITION',14,12]],
+ '07':[['VING_MIRR',63,59],['VEGR_MIRR',58,54],['VMEMB_PORT',53,49],['VLAN_BC',48,44],
+       ['TAG_PORT',43,39],['VLANID',38,27]],
+ '08':[['BC_DOMAIN',63,59],['REACH_PORT',58,54],['FL_DOMAIN',53,49],['VLAN_PMAP',48,25]],
+ '09':[['IFG',103,99],['SPEED',98,97],['MAXAGE',64,57],['VLANPRIO',56,54],
+       ['VLANID',53,42],['ING_MIRR',41,41],['EGR_MIRR',40,40],['DRPDTAG',38,38],
+       ['DRPSOTAG',37,37],['DRPSITAG',36,36],['DRPUNTAG',35,35],['RETAG',34,34],
+       ['DYN_LEARN',33,33],['EGRESS',32,32],['INGRESS',31,31],
+       ...[...Array(8)].flatMap((_,q)=>[
+         [`Q${q}_EN`,104+19*q,104+19*q],
+         [`Q${q}_BASE`,104+19*q+9,104+19*q+1],
+         [`Q${q}_TOP`,104+19*q+18,104+19*q+10]])],
+ '0B':[['CLKSRC',31,30],['ACTSUBSCH',29,27]],
+ '0D':[['DRPBC',127,123],['DRPMC',122,118],['DRPUNI',117,113],['MAXAGE',57,43],
+       ['START_DYNSPC',42,33],['DRPNOLEARN',32,28],['SHARED_LEARN',27,27],
+       ['NO_ENF_HOSTPRT',26,26],['NO_MGMT_LEARN',25,25],['USE_STATIC',24,24],
+       ['OWR_DYN',23,23],['LEARN_ONCE',22,22]],
+ '0E':[['MAX_DYNP',95,93]],
+ '10':[['L2CBS',127,127],['CAS_MASTER',126,126],['DESTMETA',125,78],['SRCMETA',77,30]],
+ '11':[['VLLUPFORMAT',351,351],['MIRR_PTACU',350,350],['SWITCHID',349,347],
+       ['HOSTPRIO',346,344],['MAC_FLTRES1',343,296],['MAC_FLTRES0',295,248],
+       ['MAC_FLT1',247,200],['MAC_FLT0',199,152],['INCL_SRCPT1',151,151],
+       ['INCL_SRCPT0',150,150],['SEND_META1',149,149],['SEND_META0',148,148],
+       ['CASC_PORT',147,145],['HOST_PORT',144,142],['MIRR_PORT',141,139],
+       ['TPID',74,59],['TPID2',57,42]],
+ '12':[['EGR_PORT',63,59],['ING_PORT',58,54],['VLAN_ING',53,42],['VLAN_EGR',41,30],
+       ['DO_NOT_LEARN',29,29],['USE_DEST_PORTS',28,28],['DESTPORTS',27,23]],
+ '13':[['CBS_PORT',159,157],['CBS_PRIO',156,154],['CREDIT_LO',153,122],
+       ['CREDIT_HI',121,90],['SEND_SLOPE',89,58],['IDLE_SLOPE',57,26]]
+};
+/* Blocks whose fields repeat per port or per priority are generated. */
+FIELDS['02']=(()=>M.gen.vllupformat
+  ?[['EGRMIRR',95,91],['INGRMIRR',90,90],['VLID',57,42],['PORT',29,27]]
+  :[['DESTPORTS',95,91],['ISCRITICAL',90,90],['MACADDR',89,42],['VLANID',41,30],
+    ['PORT',29,27],['VLANPRIOR',26,24]])();
+FIELDS['0A']=[...Array(8)].map((_,q)=>[`SUBSCHEIND${q}`,16+10*q+9,16+10*q]);
+FIELDS['0C']=[...Array(8)].map((_,q)=>[`PARTSPC${q}`,16+10*q+9,16+10*q])
+  .concat([['DEBUGEN',15,15]]);
+FIELDS['4E']=[...Array(5)].flatMap((_,i)=>
+  [[`PHY_MAC${i}`,19+3*i,19+3*i],[`xMII${i}`,18+3*i,17+3*i]]);
+
+/* Five-bit port vectors read best in binary, identifiers and masks in hex,
+   everything else as a plain count. */
+const BINFIELD=/PORT|DOMAIN|MEMB|MIRR$|MIRR[01]|DRPBC|DRPMC|DRPUNI|DRPNOLEARN|REACH/;
+const HEXFIELD=/VLANID|VLAN_ING|VLAN_EGR|MIRRVLAN|TPID|MACADDR|MASK|VLID|META|FLT/;
+function fldVal(nm,v,width){
+  if(BINFIELD.test(nm)&&width===5) return '0b'+v.toString(2).padStart(5,'0');
+  if(HEXFIELD.test(nm)||width>32)
+    return '0x'+v.toString(16).toUpperCase().padStart(width>32?12:3,'0');
+  return String(v);
+}
+function unpackBits(words,msb,lsb){
+  let v=0n;
+  for(let b=0;b<=msb-lsb;b++){const i=lsb+b;
+    if(i>>5 < words.length && ((words[i>>5]>>>(i&31))&1)) v|=(1n<<BigInt(b));}
+  return v;
+}
+/* One comment fragment per word of an entry: the fields whose lowest bit lands
+   in that word, with their decoded values. */
+function entryAnnot(id,entryWords){
+  const out=entryWords.map(()=>[]);
+  (FIELDS[id]||[]).forEach(([nm,msb,lsb])=>{
+    const wi=lsb>>5; if(wi>=out.length) return;
+    const v=unpackBits(entryWords,msb,lsb);
+    if(nm==='SPEED') { out[wi].push('SPEED='+['dynamic','1000','100','10'][Number(v)]); return; }
+    if(/^xMII/.test(nm)) { out[wi].push(nm+'='+['MII','RMII','RGMII','SGMII/off'][Number(v)]); return; }
+    if(/^PHY_MAC/.test(nm)) { out[wi].push(nm+'='+(v?'PHY':'MAC')); return; }
+    out[wi].push(`${nm}=${fldVal(nm,v,msb-lsb+1)}`);
+  });
+  return out.map(a=>a.join(' '));
+}
+
 /* Human label for entry n of each block, used to annotate every data word. */
 const ENTLABEL={
  '00':i=>`event ${i}`,
@@ -1406,22 +1496,27 @@ function blockRows(id){
   const hdr=[parseInt(id,16)<<24, data.length];
   const nm=META[id].n;
   const out=[];
-  out.push({w:hdr[0], c:`block ${id}h ${nm} — block ID`});
-  out.push({w:hdr[1], c:`block ${id}h — ${data.length} words`});
-  out.push({w:crc32(hdr), c:`block ${id}h — header CRC-32`});
+  out.push({w:hdr[0], c:`block ${id}h ${nm} — BlockID`});
+  out.push({w:hdr[1], c:`block ${id}h — BlockLength = ${data.length} words`});
+  out.push({w:crc32(hdr), c:`block ${id}h — CRC over the two header words`});
   if(META[id].raw){
     const names=RAWNAMES[id]||[];
-    data.forEach((w,k)=>out.push({w, c:`${id}h ${names[k]||'reserved'}`}));
+    data.forEach((w,k)=>out.push({w,
+      c:`${id}h ${names[k]||'reserved'} = 0x${w.toString(16).toUpperCase().padStart(8,'0')}`}));
   }else{
     const wpe=META[id].w, lab=ENTLABEL[id];
-    data.forEach((w,k)=>{
-      const e=Math.floor(k/wpe), j=k%wpe;
-      const bits=`bits ${String(j*32+31).padStart(3)}:${String(j*32).padStart(3)}`;
-      const l=lab?lab(e):'';
-      out.push({w, c:`${id}h ${l?l+', ':''}${bits}`});
-    });
+    for(let e=0;e*wpe<data.length;e++){
+      const ent=data.slice(e*wpe,(e+1)*wpe);
+      const ann=entryAnnot(id,ent);
+      ent.forEach((w,j)=>{
+        const l=lab?lab(e):'';
+        const bits=`[${j*32+31}:${j*32}]`;
+        const detail=ann[j]||'continuation of a field starting in an earlier word';
+        out.push({w, c:`${id}h ${l?l+' ':''}${bits} ${detail}`});
+      });
+    }
   }
-  out.push({w:crc32(data), c:`block ${id}h — data CRC-32`});
+  out.push({w:crc32(data), c:`block ${id}h — CRC over the ${data.length} data words`});
   return out;
 }
 
@@ -1484,7 +1579,20 @@ function headerFile(){
     o+='};\n\n';
   }
 
-  o+='#endif /* ETHERNETSWITCH_CFG_H */\n';
+  o+='#endif /* ETHERNETSWITCH_CFG_H */\n\n';
+  o+='/* ====================== configuration tool state ======================\n';
+  o+=' * Machine readable. Load this file back into the builder to recover every\n';
+  o+=' * setting exactly as it was. Editing the arrays above will NOT update this\n';
+  o+=' * block, and the CRCs are computed from the settings here.\n';
+  o+=' * ETHSWT_STATE_BEGIN\n';
+  const st=JSON.stringify({v:1,board:M.board,ports:M.ports,gen:M.gen,fwdp:M.fwdp,
+    pol:M.pol,l2:M.l2,vlan:M.vlan,lkp:M.lkp,avb:M.avb,sched:M.sched,
+    schedep:M.schedep,vllkp:M.vllkp,vlpol:M.vlpol,vlfwd:M.vlfwd,schedp:M.schedp,
+    schedepp:M.schedepp,vlfwdp:M.vlfwdp,retag:M.retag,cbs:M.cbs,raw:M.raw,
+    on:M.on,clk:M.clk,spiHdr:M.spiHdr,chunk:M.chunk,fmt:M.fmt});
+  st.match(/.{1,86}/g).forEach(l=>{o+=' * '+l+'\n';});
+  o+=' * ETHSWT_STATE_END\n';
+  o+=' * ==================================================================== */\n';
   return o;
 }
 
@@ -1603,7 +1711,39 @@ document.getElementById('dl').addEventListener('click',ev=>{
   document.body.appendChild(a); a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},0);
   ev.target.textContent='Saved';
-  setTimeout(()=>ev.target.textContent='Download .h',1500);
+  setTimeout(()=>ev.target.textContent='Save configuration',1500);
+});
+
+document.getElementById('ld').addEventListener('click',()=>
+  document.getElementById('ldfile').click());
+
+document.getElementById('ldfile').addEventListener('change',ev=>{
+  const f=ev.target.files&&ev.target.files[0];
+  if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    const btn=document.getElementById('ld');
+    try{
+      const txt=String(rd.result);
+      const a=txt.indexOf('ETHSWT_STATE_BEGIN'), b=txt.indexOf('ETHSWT_STATE_END');
+      if(a<0||b<0) throw new Error('no state block');
+      const json=txt.slice(a+18,b).split('\n')
+        .map(l=>l.replace(/^\s*\*\s?/,'').trim()).join('');
+      const st=JSON.parse(json);
+      if(!st||st.v!==1) throw new Error('unrecognised version');
+      Object.keys(st).forEach(k=>{ if(k!=='v' && k in M) M[k]=st[k]; });
+      document.getElementById('o_chunk').value=M.chunk;
+      document.getElementById('o_fmt').value=M.fmt;
+      document.getElementById('spihdr').checked=!!M.spiHdr;
+      renderList(); renderPanel(); build();
+      btn.textContent='Loaded';
+    }catch(err){
+      btn.textContent='Not a saved file';
+    }
+    setTimeout(()=>{btn.textContent='Load';},1800);
+    ev.target.value='';
+  };
+  rd.readAsText(f);
 });
 document.getElementById('o_chunk').addEventListener('input',e=>{
   M.chunk=e.target.value; build(); });
